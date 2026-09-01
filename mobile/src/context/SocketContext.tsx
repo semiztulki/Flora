@@ -5,12 +5,13 @@ import { getPendingGroupMessages } from "../db/groupMessages";
 import { WS_URL } from "../config";
 import { useAuth } from "./AuthContext";
 import { GroupMessage, Message, PresenceStatus, ServerEvent, SettableStatus } from "../types";
-import { playIncomingSound } from "../utils/sound";
+import { playContactRequestSound, playIncomingSound } from "../utils/sound";
 
 type MessageListener = (message: Message) => void;
 type GroupMessageListener = (message: GroupMessage) => void;
 type PresenceListener = (userId: number, status: PresenceStatus, lastSeen: string) => void;
 type TypingListener = (senderId: number, recipientId?: number, groupId?: number) => void;
+type ContactRequestListener = (id: number, username: string, displayName: string) => void;
 
 interface SocketContextValue {
   sendMessage: (
@@ -31,6 +32,7 @@ interface SocketContextValue {
   onGroupMessage: (listener: GroupMessageListener) => () => void;
   onPresence: (listener: PresenceListener) => () => void;
   onTyping: (listener: TypingListener) => () => void;
+  onContactRequest: (listener: ContactRequestListener) => () => void;
   isConnected: boolean;
 }
 
@@ -58,6 +60,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const groupMessageListeners = useRef(new Set<GroupMessageListener>());
   const presenceListeners = useRef(new Set<PresenceListener>());
   const typingListeners = useRef(new Set<TypingListener>());
+  const contactRequestListeners = useRef(new Set<ContactRequestListener>());
   const [isConnected, setIsConnected] = useState(false);
   // Preserved across reconnects so dropping and regaining signal while
   // invisible/dnd doesn't silently pop the user back to "online".
@@ -157,6 +160,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           );
         } else if (data.type === "banned") {
           reportBannedRef.current({ reason: data.reason, expiresAt: data.expires_at });
+        } else if (data.type === "contact_request") {
+          if (desiredStatus.current !== "dnd") playContactRequestSound();
+          contactRequestListeners.current.forEach((listener) =>
+            listener(data.id, data.username, data.display_name)
+          );
         }
       };
 
@@ -274,6 +282,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     return () => typingListeners.current.delete(listener);
   };
 
+  const onContactRequest = (listener: ContactRequestListener) => {
+    contactRequestListeners.current.add(listener);
+    return () => contactRequestListeners.current.delete(listener);
+  };
+
   return (
     <SocketContext.Provider
       value={{
@@ -285,6 +298,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onGroupMessage,
         onPresence,
         onTyping,
+        onContactRequest,
         isConnected,
       }}
     >

@@ -137,6 +137,7 @@ export type ServerEvent =
   | { type: "presence"; user_id: number; status: PresenceStatus; last_seen: string }
   | { type: "typing"; sender_id: number; recipient_id?: number; group_id?: number }
   | { type: "banned"; reason: string; expires_at: string | null }
+  | { type: "contact_request"; id: number; username: string; display_name: string }
   | { type: "error"; detail: string }
   | { type: "pong" };
 

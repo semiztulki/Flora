@@ -38,15 +38,21 @@ flushed automatically once `SocketContext` reconnects (exponential backoff +
 a ping/pong heartbeat to detect connections that die silently on a weak
 signal).
 
-## Notification sound
+## Notification sounds
 
-`assets/sounds/incoming.mp3` plays whenever a DM or group message arrives
-that isn't your own echo and you're not set to "не беспокоить" —
-`SocketContext` triggers it via `src/utils/sound.ts` (expo-av). This only
-fires while the app is in the foreground; there's no background push
-infrastructure behind it yet, so it won't play with the app closed or
-backgrounded. To swap the sound, replace that file (keep the same name) or
-change the path in `src/utils/sound.ts`.
+Two, both wired through `src/utils/sound.ts` (expo-av) and triggered from
+`SocketContext` regardless of which screen is open, and both skipped while
+you're set to "не беспокоить":
+- `assets/sounds/incoming.mp3` — a DM or group message arrives (not your own echo)
+- `assets/sounds/contact_request.mp3` — someone sends you a contact request
+  (the backend pushes a `contact_request` WS event when the pending row is
+  created; `ContactsScreen` also uses it to refresh the requests list live
+  instead of waiting for the next focus)
+
+Both are foreground-only — there's no background push infrastructure behind
+this yet, so neither plays with the app closed or backgrounded. To swap a
+sound, replace the file (keep the same name) or edit the path in
+`src/utils/sound.ts`.
 
 ## Photo attachments
 

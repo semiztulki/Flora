@@ -12,6 +12,7 @@ from app.schemas import (
     ContactOut,
     ContactRequestOut,
 )
+from app.websocket_manager import manager
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
 
@@ -102,6 +103,17 @@ async def add_contact(
 
     db.add(Contact(owner_id=current_user.id, contact_id=target.id, status=ContactStatus.pending))
     await db.commit()
+
+    await manager.send_to_user(
+        target.id,
+        {
+            "type": "contact_request",
+            "id": current_user.id,
+            "username": current_user.username,
+            "display_name": current_user.display_name,
+        },
+    )
+
     return ContactAddResult(relationship_status="pending", contact=target)
 
 

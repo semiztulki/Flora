@@ -45,7 +45,8 @@ const STATUS_OPTIONS: { value: SettableStatus; label: string }[] = [
 
 export default function ContactsScreen({ navigation }: Props) {
   const { user, logout } = useAuth();
-  const { onPresence, onMessage, onGroupMessage, setPresence, isConnected } = useSocket();
+  const { onPresence, onMessage, onGroupMessage, onContactRequest, setPresence, isConnected } =
+    useSocket();
   const [contacts, setContacts] = useState<User[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [requests, setRequests] = useState<ContactRequest[]>([]);
@@ -138,6 +139,15 @@ export default function ContactsScreen({ navigation }: Props) {
       }).then(refreshUnreadGroups);
     });
   }, [onGroupMessage, refreshUnreadGroups]);
+
+  // The knock sound itself plays globally from SocketContext regardless of
+  // which screen is open — this just keeps the visible list live while
+  // you're actually looking at it, instead of waiting for the next focus.
+  useEffect(() => {
+    return onContactRequest(() => {
+      loadRequests();
+    });
+  }, [onContactRequest, loadRequests]);
 
   const handleAddContact = async () => {
     setError(null);
