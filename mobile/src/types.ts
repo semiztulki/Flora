@@ -135,8 +135,10 @@ export interface BlockedUser {
 }
 
 export type ServerEvent =
-  | ({ type: "message" } & Message)
-  | ({ type: "group_message" } & GroupMessage)
+  // `replay` marks a message resent from the offline backlog on reconnect,
+  // rather than a live event — the client uses it to skip the incoming sound.
+  | ({ type: "message"; replay?: boolean } & Message)
+  | ({ type: "group_message"; replay?: boolean } & GroupMessage)
   | { type: "presence"; user_id: number; status: PresenceStatus; last_seen: string }
   | { type: "typing"; sender_id: number; recipient_id?: number; group_id?: number }
   | { type: "banned"; reason: string; expires_at: string | null }

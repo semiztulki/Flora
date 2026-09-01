@@ -43,7 +43,10 @@ signal).
 Two, both wired through `src/utils/sound.ts` (expo-av) and triggered from
 `SocketContext` regardless of which screen is open, and both skipped while
 you're set to "не беспокоить":
-- `assets/sounds/incoming.mp3` — a DM or group message arrives (not your own echo)
+- `assets/sounds/incoming.mp3` — a DM or group message arrives (not your own
+  echo, and not the offline backlog replayed to you on reconnect — the
+  server tags those `replay: true` so a big backlog doesn't fire the sound
+  once per message)
 - `assets/sounds/contact_request.mp3` — someone sends you a contact request
   (the backend pushes a `contact_request` WS event when the pending row is
   created; `ContactsScreen` also uses it to refresh the requests list live

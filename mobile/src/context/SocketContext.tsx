@@ -147,6 +147,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           // treat it as incoming anyway so the sound can be tested solo.
           const isSelfChatTestMode = data.sender_id === data.recipient_id;
           if (
+            !data.replay &&
             (data.sender_id !== currentUserId.current || isSelfChatTestMode) &&
             desiredStatus.current !== "dnd"
           ) {
@@ -154,7 +155,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           }
           messageListeners.current.forEach((listener) => listener(data));
         } else if (data.type === "group_message") {
-          if (data.sender_id !== currentUserId.current && desiredStatus.current !== "dnd") {
+          if (
+            !data.replay &&
+            data.sender_id !== currentUserId.current &&
+            desiredStatus.current !== "dnd"
+          ) {
             playIncomingSound();
           }
           groupMessageListeners.current.forEach((listener) => listener(data));

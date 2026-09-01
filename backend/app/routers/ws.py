@@ -129,9 +129,19 @@ async def _replay_offline_messages(db: AsyncSession, user_id: int) -> None:
         return
 
     for message in pending:
-        await manager.send_to_user(user_id, await _message_payload(db, message))
+        payload = await _message_payload(db, message)
+        # Tells the client this is backlog, not a live event — no incoming
+        # sound, since replaying a whole backlog on reconnect shouldn't fire
+        # a sound for every message in it (some of which the client may
+        # already display locally from before the connection ever dropped).
+        payload["replay"] = True
+        await manager.send_to_user(user_id, payload)
         message.delivered = True
-    await db.commit()
+        # Committed per-message rather than once at the end: if the
+        # connection dies partway through a long backlog, whatever was
+        # already sent stays marked delivered instead of being replayed
+        # (and re-sounding) again on every future reconnect.
+        await db.commit()
 
 
 async def _replay_offline_group_messages(db: AsyncSession, user_id: int) -> None:
@@ -153,9 +163,14 @@ async def _replay_offline_group_messages(db: AsyncSession, user_id: int) -> None
         if not pending:
             continue
         for message in pending:
-            await manager.send_to_user(user_id, await _group_message_payload(db, message))
-        membership.last_delivered_message_id = pending[-1].id
-    await db.commit()
+            payload = await _group_message_payload(db, message)
+            payload["replay"] = True  # backlog, not live — no incoming sound
+            await manager.send_to_user(user_id, payload)
+            membership.last_delivered_message_id = message.id
+            # Per-message commit, same reasoning as _replay_offline_messages:
+            # a dropped connection mid-backlog shouldn't undo progress on the
+            # messages that did get sent.
+            await db.commit()
 
 
 @router.websocket("/ws")
