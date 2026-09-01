@@ -19,6 +19,7 @@ export interface Message {
   sender_id: number;
   recipient_id: number;
   body: string;
+  client_id: string | null;
   created_at: string;
 }
 

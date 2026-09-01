@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -46,11 +46,19 @@ class Contact(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (UniqueConstraint("sender_id", "client_id", name="uq_sender_client_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     body: Mapped[str] = mapped_column(String(4000))
+    # Client-generated id for idempotent sends (retries after a dropped connection
+    # must not create duplicate messages). Unique per sender; NULL allowed for rows
+    # that predate this field.
+    client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Store-and-forward flag, mirrors classic ICQ offline messages: set True once the
+    # recipient has actually received it live or via offline replay on connect.
+    delivered: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
     sender: Mapped["User"] = relationship(foreign_keys=[sender_id])

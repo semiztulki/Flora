@@ -53,6 +53,8 @@ class MessageOut(BaseModel):
     sender_id: int
     recipient_id: int
     body: str
+    client_id: str | None = None
+    delivered: bool
     created_at: datetime
 
 

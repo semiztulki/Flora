@@ -1,3 +1,4 @@
+import { useFocusEffect } from "@react-navigation/native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -12,6 +13,7 @@ import {
 import * as contactsApi from "../api/contacts";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
+import { getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
 import { RootStackParamList, User } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
@@ -24,8 +26,9 @@ const statusColor: Record<User["status"], string> = {
 
 export default function ContactsScreen({ navigation }: Props) {
   const { user, logout } = useAuth();
-  const { onPresence, isConnected } = useSocket();
+  const { onPresence, onMessage, isConnected } = useSocket();
   const [contacts, setContacts] = useState<User[]>([]);
+  const [unread, setUnread] = useState<Record<number, number>>({});
   const [newUsername, setNewUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +37,21 @@ export default function ContactsScreen({ navigation }: Props) {
     setContacts(data);
   }, []);
 
+  const refreshUnread = useCallback(async () => {
+    setUnread(await getUnreadCounts());
+  }, []);
+
   useEffect(() => {
     loadContacts();
   }, [loadContacts]);
+
+  // Unread badges can change while this screen is backgrounded (e.g. you were
+  // reading a chat, or the store-and-forward replay landed) — recompute on focus.
+  useFocusEffect(
+    useCallback(() => {
+      refreshUnread();
+    }, [refreshUnread])
+  );
 
   useEffect(() => {
     return onPresence((userId, status, lastSeen) => {
@@ -45,6 +60,24 @@ export default function ContactsScreen({ navigation }: Props) {
       );
     });
   }, [onPresence]);
+
+  // Every incoming/outgoing message gets persisted here too (not just inside an
+  // open chat) so the local log stays complete and unread badges update live.
+  useEffect(() => {
+    return onMessage((message) => {
+      if (!user) return;
+      const peerId = message.sender_id === user.id ? message.recipient_id : message.sender_id;
+      upsertConfirmedMessage({
+        serverId: message.id,
+        clientId: message.client_id,
+        senderId: message.sender_id,
+        recipientId: message.recipient_id,
+        peerId,
+        body: message.body,
+        createdAt: message.created_at,
+      }).then(refreshUnread);
+    });
+  }, [onMessage, user, refreshUnread]);
 
   const handleAddContact = async () => {
     setError(null);
@@ -84,15 +117,26 @@ export default function ContactsScreen({ navigation }: Props) {
       <FlatList
         data={contacts}
         keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => navigation.navigate("Chat", { contact: item })}>
-            <View style={[styles.dot, { backgroundColor: statusColor[item.status] }]} />
-            <View>
-              <Text style={styles.name}>{item.display_name}</Text>
-              <Text style={styles.username}>@{item.username}</Text>
-            </View>
-          </Pressable>
-        )}
+        renderItem={({ item }) => {
+          const unreadCount = unread[item.id] ?? 0;
+          return (
+            <Pressable
+              style={styles.row}
+              onPress={() => navigation.navigate("Chat", { contact: item })}
+            >
+              <View style={[styles.dot, { backgroundColor: statusColor[item.status] }]} />
+              <View style={styles.rowText}>
+                <Text style={styles.name}>{item.display_name}</Text>
+                <Text style={styles.username}>@{item.username}</Text>
+              </View>
+              {unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{unreadCount}</Text>
+                </View>
+              )}
+            </Pressable>
+          );
+        }}
         ListEmptyComponent={<Text style={styles.empty}>Пока нет контактов</Text>}
       />
     </View>
@@ -132,7 +176,18 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f1f3f5",
   },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
+  rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },
   username: { color: "#868e96" },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#2f9e44",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  badgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   empty: { textAlign: "center", color: "#868e96", marginTop: 40 },
 });

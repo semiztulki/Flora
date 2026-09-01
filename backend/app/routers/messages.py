@@ -13,17 +13,19 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 @router.get("/{contact_id}", response_model=list[MessageOut])
 async def get_history(
     contact_id: int,
+    since_id: int = 0,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Message)
-        .where(
-            or_(
-                (Message.sender_id == current_user.id) & (Message.recipient_id == contact_id),
-                (Message.sender_id == contact_id) & (Message.recipient_id == current_user.id),
-            )
+    """With since_id=0 (default) returns full history; pass the highest message id
+    already cached on the client to fetch only what's new since then (delta sync)."""
+    query = select(Message).where(
+        or_(
+            (Message.sender_id == current_user.id) & (Message.recipient_id == contact_id),
+            (Message.sender_id == contact_id) & (Message.recipient_id == current_user.id),
         )
-        .order_by(Message.created_at)
     )
+    if since_id:
+        query = query.where(Message.id > since_id)
+    result = await db.execute(query.order_by(Message.created_at))
     return result.scalars().all()

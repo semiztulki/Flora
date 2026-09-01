@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 
+import { getPendingMessages } from "../db/messages";
 import { WS_URL } from "../config";
 import { useAuth } from "./AuthContext";
 import { Message, PresenceStatus, ServerEvent } from "../types";
@@ -8,7 +9,7 @@ type MessageListener = (message: Message) => void;
 type PresenceListener = (userId: number, status: PresenceStatus, lastSeen: string) => void;
 
 interface SocketContextValue {
-  sendMessage: (recipientId: number, body: string) => void;
+  sendMessage: (recipientId: number, body: string, clientId: string) => void;
   setPresence: (status: "online" | "away") => void;
   onMessage: (listener: MessageListener) => () => void;
   onPresence: (listener: PresenceListener) => () => void;
@@ -17,6 +18,11 @@ interface SocketContextValue {
 
 const SocketContext = createContext<SocketContextValue | undefined>(undefined);
 
+const HEARTBEAT_INTERVAL_MS = 25_000;
+const PONG_TIMEOUT_MS = 10_000;
+const MAX_BACKOFF_MS = 30_000;
+const BASE_BACKOFF_MS = 1_000;
+
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
@@ -24,44 +30,119 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const presenceListeners = useRef(new Set<PresenceListener>());
   const [isConnected, setIsConnected] = useState(false);
 
+  const reconnectAttempt = useRef(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pongTimeoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isUnmounted = useRef(false);
+
   useEffect(() => {
-    if (!token) {
-      wsRef.current?.close();
-      wsRef.current = null;
-      setIsConnected(false);
-      return;
-    }
+    isUnmounted.current = false;
 
-    const socket = new WebSocket(`${WS_URL}/ws?token=${token}`);
-    wsRef.current = socket;
+    const clearTimers = () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
+      if (pongTimeoutTimer.current) clearTimeout(pongTimeoutTimer.current);
+    };
 
-    socket.onopen = () => setIsConnected(true);
-    socket.onclose = () => setIsConnected(false);
-    socket.onerror = () => setIsConnected(false);
-
-    socket.onmessage = (event) => {
-      const data: ServerEvent = JSON.parse(event.data);
-      if (data.type === "message") {
-        messageListeners.current.forEach((listener) => listener(data));
-      } else if (data.type === "presence") {
-        presenceListeners.current.forEach((listener) =>
-          listener(data.user_id, data.status, data.last_seen)
+    const flushOutbox = async (socket: WebSocket) => {
+      const pending = await getPendingMessages();
+      for (const message of pending) {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        socket.send(
+          JSON.stringify({
+            type: "message",
+            recipient_id: message.recipientId,
+            body: message.body,
+            client_id: message.clientId,
+          })
         );
       }
     };
 
+    const startHeartbeat = (socket: WebSocket) => {
+      heartbeatTimer.current = setInterval(() => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: "ping" }));
+        pongTimeoutTimer.current = setTimeout(() => {
+          // No pong in time: the connection is likely dead (common on flaky
+          // mobile networks that don't send a clean close). Force a reconnect.
+          socket.close();
+        }, PONG_TIMEOUT_MS);
+      }, HEARTBEAT_INTERVAL_MS);
+    };
+
+    const connect = () => {
+      if (!token || isUnmounted.current) return;
+
+      const socket = new WebSocket(`${WS_URL}/ws?token=${token}`);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        setIsConnected(true);
+        reconnectAttempt.current = 0;
+        startHeartbeat(socket);
+        flushOutbox(socket);
+      };
+
+      socket.onmessage = (event) => {
+        const data: ServerEvent = JSON.parse(event.data);
+        if (data.type === "pong") {
+          if (pongTimeoutTimer.current) clearTimeout(pongTimeoutTimer.current);
+        } else if (data.type === "message") {
+          messageListeners.current.forEach((listener) => listener(data));
+        } else if (data.type === "presence") {
+          presenceListeners.current.forEach((listener) =>
+            listener(data.user_id, data.status, data.last_seen)
+          );
+        }
+      };
+
+      const handleDrop = () => {
+        setIsConnected(false);
+        if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
+        if (pongTimeoutTimer.current) clearTimeout(pongTimeoutTimer.current);
+        wsRef.current = null;
+        if (isUnmounted.current) return;
+
+        const delay = Math.min(
+          BASE_BACKOFF_MS * 2 ** reconnectAttempt.current,
+          MAX_BACKOFF_MS
+        );
+        reconnectAttempt.current += 1;
+        reconnectTimer.current = setTimeout(connect, delay);
+      };
+
+      socket.onclose = handleDrop;
+      socket.onerror = handleDrop;
+    };
+
+    connect();
+
     return () => {
-      socket.close();
+      isUnmounted.current = true;
+      clearTimers();
+      wsRef.current?.close();
       wsRef.current = null;
     };
   }, [token]);
 
-  const sendMessage = (recipientId: number, body: string) => {
-    wsRef.current?.send(JSON.stringify({ type: "message", recipient_id: recipientId, body }));
+  const sendMessage = (recipientId: number, body: string, clientId: string) => {
+    const socket = wsRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({ type: "message", recipient_id: recipientId, body, client_id: clientId })
+      );
+    }
+    // If not connected, the caller has already persisted the message locally
+    // as 'pending' — it will be sent by flushOutbox() on the next reconnect.
   };
 
   const setPresence = (status: "online" | "away") => {
-    wsRef.current?.send(JSON.stringify({ type: "presence", status }));
+    const socket = wsRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "presence", status }));
+    }
   };
 
   const onMessage = (listener: MessageListener) => {
