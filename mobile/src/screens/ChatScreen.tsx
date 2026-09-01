@@ -272,7 +272,12 @@ export default function ChatScreen({ route, navigation }: Props) {
         contentContainerStyle={styles.list}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => {
-          const isMine = item.senderId === user?.id;
+          // TEMP TESTING HACK (remove after sound/incoming testing is done):
+          // in a self-chat there's no real "other side", so every message
+          // renders as incoming (and gets the incoming sound, see
+          // SocketContext) instead of always showing as your own sent bubble.
+          const isSelfChatTestMode = contact.id === user?.id;
+          const isMine = item.senderId === user?.id && !isSelfChatTestMode;
           return (
             <Pressable
               style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}

@@ -141,7 +141,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         if (data.type === "pong") {
           if (pongTimeoutTimer.current) clearTimeout(pongTimeoutTimer.current);
         } else if (data.type === "message") {
-          if (data.sender_id !== currentUserId.current && desiredStatus.current !== "dnd") {
+          // TEMP TESTING HACK (remove after sound/incoming testing is done):
+          // a self-chat message always has sender_id === recipient_id, so it
+          // would never look "incoming" by the normal sender check below —
+          // treat it as incoming anyway so the sound can be tested solo.
+          const isSelfChatTestMode = data.sender_id === data.recipient_id;
+          if (
+            (data.sender_id !== currentUserId.current || isSelfChatTestMode) &&
+            desiredStatus.current !== "dnd"
+          ) {
             playIncomingSound();
           }
           messageListeners.current.forEach((listener) => listener(data));
