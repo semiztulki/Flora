@@ -70,13 +70,28 @@ async def add_contact(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if payload.username == current_user.username:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot add yourself")
-
     result = await db.execute(select(User).where(User.username == payload.username))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if target.id == current_user.id:
+        existing_self = await db.execute(
+            select(Contact).where(
+                Contact.owner_id == current_user.id, Contact.contact_id == current_user.id
+            )
+        )
+        if existing_self.scalar_one_or_none() is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already a contact")
+        # A chat-with-yourself contact doesn't need authorization — you're
+        # trivially both sides of that request.
+        db.add(
+            Contact(
+                owner_id=current_user.id, contact_id=current_user.id, status=ContactStatus.accepted
+            )
+        )
+        await db.commit()
+        return ContactAddResult(relationship_status="accepted", contact=current_user)
 
     if await _is_blocked_either_way(db, current_user.id, target.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Blocked")
@@ -182,6 +197,8 @@ async def block_user(
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if target.id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot block yourself")
 
     existing = await db.execute(
         select(Block).where(Block.owner_id == current_user.id, Block.blocked_id == target.id)

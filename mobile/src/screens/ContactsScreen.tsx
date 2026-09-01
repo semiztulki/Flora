@@ -195,6 +195,9 @@ export default function ContactsScreen({ navigation }: Props) {
   // block someone for any reason (an unwanted admirer, say), you report
   // someone because their behaviour needs a moderator's attention.
   const handleContactLongPress = (contact: User) => {
+    // Reporting/blocking yourself makes no sense — the server rejects it
+    // anyway, but there's no reason to show the option at all.
+    if (contact.id === user?.id) return;
     Alert.alert(contact.display_name, undefined, [
       { text: "Отмена", style: "cancel" },
       {
@@ -337,7 +340,10 @@ export default function ContactsScreen({ navigation }: Props) {
                   style={[styles.dot, { backgroundColor: statusColor[item.contact.status] }]}
                 />
                 <View style={styles.rowText}>
-                  <Text style={styles.name}>{item.contact.display_name}</Text>
+                  <Text style={styles.name}>
+                    {item.contact.display_name}
+                    {item.contact.id === user?.id ? " (Заметки для себя)" : ""}
+                  </Text>
                   <Text style={styles.username}>@{item.contact.username}</Text>
                 </View>
                 {unreadCount > 0 && (

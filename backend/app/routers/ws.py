@@ -245,7 +245,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                     await db.refresh(message)
 
                     payload = await _message_payload(db, message)
-                    if recipient_online:
+                    # Messaging yourself: recipient_id == user_id, so the
+                    # "notify recipient" and "echo to sender" sends below
+                    # would otherwise deliver the exact same payload twice
+                    # over the same connection.
+                    if recipient_online and recipient_id != user_id:
                         await manager.send_to_user(recipient_id, payload)
                     await manager.send_to_user(user_id, payload)
 
