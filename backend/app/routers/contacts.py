@@ -92,6 +92,24 @@ async def set_contact_visibility(
     )
 
 
+@router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_contact(
+    contact_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Removes contact_id from *your* contact list only — one-directional,
+    like most apps: they may still have you until they remove you too."""
+    result = await db.execute(
+        select(Contact).where(Contact.owner_id == current_user.id, Contact.contact_id == contact_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not a contact")
+    await db.delete(row)
+    await db.commit()
+
+
 @router.get("/requests", response_model=list[ContactRequestOut])
 async def list_incoming_requests(
     current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)

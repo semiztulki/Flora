@@ -33,6 +33,15 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
           last_read_server_id INTEGER NOT NULL DEFAULT 0
         );
 
+        -- Tracks the highest server message id ever synced per peer,
+        -- independent of what's still stored in the messages table — so
+        -- "clear conversation" (which deletes local rows) doesn't make
+        -- delta-sync forget where it was and re-download the cleared history.
+        CREATE TABLE IF NOT EXISTS sync_state (
+          peer_id INTEGER PRIMARY KEY,
+          max_synced_id INTEGER NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS group_messages (
           local_id INTEGER PRIMARY KEY AUTOINCREMENT,
           server_id INTEGER,

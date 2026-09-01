@@ -127,7 +127,10 @@ export async function upsertConfirmedMessage(msg: {
       attachment?.height ?? null,
       msg.clientId
     );
-    if (result.changes > 0) return;
+    if (result.changes > 0) {
+      await bumpSyncWatermark(db, msg.peerId, msg.serverId);
+      return;
+    }
   }
   await db.runAsync(
     `INSERT OR IGNORE INTO messages
@@ -148,6 +151,20 @@ export async function upsertConfirmedMessage(msg: {
     attachment?.height ?? null,
     msg.createdAt
   );
+  await bumpSyncWatermark(db, msg.peerId, msg.serverId);
+}
+
+async function bumpSyncWatermark(
+  db: Awaited<ReturnType<typeof getDb>>,
+  peerId: number,
+  serverId: number
+): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO sync_state (peer_id, max_synced_id) VALUES (?, ?)
+     ON CONFLICT(peer_id) DO UPDATE SET max_synced_id = MAX(max_synced_id, excluded.max_synced_id)`,
+    peerId,
+    serverId
+  );
 }
 
 export async function getMessagesForPeer(peerId: number): Promise<LocalMessage[]> {
@@ -159,13 +176,23 @@ export async function getMessagesForPeer(peerId: number): Promise<LocalMessage[]
   return rows.map(mapRow);
 }
 
+/** The delta-sync watermark: highest server message id ever seen for this
+ * peer, kept even after `clearMessagesForPeer` deletes the local rows. */
 export async function getMaxServerId(peerId: number): Promise<number> {
   const db = await getDb();
-  const row = await db.getFirstAsync<{ max_id: number | null }>(
-    `SELECT MAX(server_id) as max_id FROM messages WHERE peer_id = ?`,
+  const row = await db.getFirstAsync<{ max_synced_id: number }>(
+    `SELECT max_synced_id FROM sync_state WHERE peer_id = ?`,
     peerId
   );
-  return row?.max_id ?? 0;
+  return row?.max_synced_id ?? 0;
+}
+
+/** Local-only: clears this device's copy of the conversation. Doesn't touch
+ * the server, doesn't affect the other person, and doesn't cause the
+ * cleared history to be re-downloaded on next sync (see sync_state). */
+export async function clearMessagesForPeer(peerId: number): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM messages WHERE peer_id = ?`, peerId);
 }
 
 export async function getPendingMessages(): Promise<LocalMessage[]> {

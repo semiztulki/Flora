@@ -3,6 +3,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  AlertButton,
   Modal,
   Pressable,
   SectionList,
@@ -16,7 +17,7 @@ import * as contactsApi from "../api/contacts";
 import * as groupsApi from "../api/groups";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
-import { getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
+import { clearMessagesForPeer, getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
 import { getUnreadGroupCounts, upsertConfirmedGroupMessage } from "../db/groupMessages";
 import { BlockedUser, ContactRequest, Group, RootStackParamList, SettableStatus, User } from "../types";
 
@@ -206,31 +207,78 @@ export default function ContactsScreen({ navigation }: Props) {
     );
   };
 
+  const handleClearDialog = (contact: User) => {
+    Alert.alert(
+      "Очистить диалог?",
+      `История переписки с ${contact.display_name} удалится с этого устройства (у собеседника останется своя копия).`,
+      [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Очистить",
+          style: "destructive",
+          onPress: async () => {
+            await clearMessagesForPeer(contact.id);
+            setUnread((prev) => ({ ...prev, [contact.id]: 0 }));
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRemoveContact = (contact: User) => {
+    Alert.alert(
+      "Удалить из контактов?",
+      `${contact.display_name} будет удалён(а) из списка контактов.`,
+      [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Удалить",
+          style: "destructive",
+          onPress: async () => {
+            await contactsApi.removeContact(contact.id);
+            setContacts((prev) => prev.filter((c) => c.id !== contact.id));
+          },
+        },
+      ]
+    );
+  };
+
   // Deliberately two separate actions, not one instead of the other: you
   // block someone for any reason (an unwanted admirer, say), you report
   // someone because their behaviour needs a moderator's attention.
   const handleContactLongPress = (contact: User) => {
-    // Reporting/blocking yourself makes no sense — the server rejects it
-    // anyway, but there's no reason to show the option at all.
-    if (contact.id === user?.id) return;
-    Alert.alert(contact.display_name, undefined, [
-      { text: "Отмена", style: "cancel" },
-      {
+    // Reporting/blocking/toggling your own invisible-visibility makes no
+    // sense on yourself — the server rejects report/block anyway, but
+    // there's no reason to show any of the three. Clearing the dialog and
+    // removing the contact still make sense even for your own notes-to-self.
+    const isSelf = contact.id === user?.id;
+    const options: AlertButton[] = [{ text: "Отмена", style: "cancel" }];
+    if (!isSelf) {
+      options.push({
         text: contact.visible_when_invisible
           ? "Не показывать ей(ему) мой инвиз"
           : "Показывать ей(ему) мой инвиз",
         onPress: () => handleToggleInvisibleVisibility(contact),
-      },
-      {
+      });
+    }
+    options.push({ text: "Очистить диалог", onPress: () => handleClearDialog(contact) });
+    if (!isSelf) {
+      options.push({
         text: "Пожаловаться",
         onPress: () =>
           navigation.navigate("Report", {
             reportedUsername: contact.username,
             reportedDisplayName: contact.display_name,
           }),
-      },
-      { text: "Заблокировать", style: "destructive", onPress: () => confirmBlock(contact) },
-    ]);
+      });
+      options.push({ text: "Заблокировать", style: "destructive", onPress: () => confirmBlock(contact) });
+    }
+    options.push({
+      text: "Удалить из контактов",
+      style: "destructive",
+      onPress: () => handleRemoveContact(contact),
+    });
+    Alert.alert(contact.display_name, undefined, options);
   };
 
   const handleUnblock = async (blockedUser: BlockedUser) => {

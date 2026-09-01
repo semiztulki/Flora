@@ -41,6 +41,10 @@ export async function fetchBlocked(): Promise<BlockedUser[]> {
 
 /** Grants/revokes one contact's ability to see your real status while
  * you're invisible, instead of just seeing "offline" like everyone else. */
+export async function removeContact(contactId: number): Promise<void> {
+  await api.delete(`/contacts/${contactId}`);
+}
+
 export async function setVisibleWhenInvisible(
   contactId: number,
   visible: boolean

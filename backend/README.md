@@ -26,6 +26,14 @@ point at Postgres for anything beyond local dev, e.g.:
 DATABASE_URL=postgresql+asyncpg://user:password@localhost/flora
 ```
 
+There's no Alembic here — every startup (`init_db()` in `app/database.py`)
+diffs each model's columns against the actual table and `ALTER TABLE ADD
+COLUMN`s whatever's missing, so pulling in a schema change (a new column on
+an existing table) just works on the next restart. It only ever adds
+columns — existing data, and columns it doesn't recognize, are left alone.
+Good enough for this project's SQLite dev DB; a real migration tool would
+still be the right call before ever pointing this at Postgres in production.
+
 ## API
 
 - `POST /auth/register` — `{username, display_name, password}` -> `{access_token, user}`
@@ -35,6 +43,8 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost/flora
 - `GET /contacts` — list authorized (accepted) contacts
 - `POST /contacts` — `{username}` send a contact request; if they already sent
   you one, both sides auto-accept instead of leaving two pending requests
+- `DELETE /contacts/{contact_id}` — remove someone from *your* contact list
+  only (one-directional — they keep you until they remove you too)
 - `GET /contacts/requests` — incoming requests waiting for your authorization
 - `POST /contacts/requests/{requester_id}/accept` / `.../decline`
 - `POST /contacts/block` / `POST /contacts/unblock` — `{username}`

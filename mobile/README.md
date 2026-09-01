@@ -92,7 +92,13 @@ Anyone (not just admins) can report a user via `ReportScreen` — long-press a
 contact row (shows "Пожаловаться" and "Заблокировать" as two separate
 options, deliberately: block needs no justification, report is for
 something an admin should look at) or long-press someone else's message
-bubble in a DM or group chat to report that specific message.
+bubble in a DM or group chat to report that specific message. The same
+long-press menu also has "Очистить диалог" (deletes your local copy of the
+conversation only — `clearMessagesForPeer` in `src/db/messages.ts` — the
+server and the other person are untouched) and "Удалить из контактов"
+(`DELETE /contacts/{id}`, one-directional). Report/block/the invisible-
+visibility toggle are hidden on your own contact row (self-chat) since
+they're meaningless there; clear/remove still work on it.
 
 ## Search
 
