@@ -20,7 +20,7 @@ async def submit_report(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.username == payload.reported_username))
+    result = await db.execute(select(User).where(User.uin == payload.reported_uin))
     reported_user = result.scalar_one_or_none()
     if reported_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -82,7 +82,7 @@ async def list_reports(
     Reported = aliased(User)
 
     query = (
-        select(Report, Reporter.username, Reported.id, Reported.username, Reported.display_name)
+        select(Report, Reporter.uin, Reported.id, Reported.uin, Reported.display_name)
         .join(Reporter, Report.reporter_id == Reporter.id)
         .join(Reported, Report.reported_user_id == Reported.id)
         .order_by(Report.created_at.desc())
@@ -94,9 +94,9 @@ async def list_reports(
     return [
         ReportAdminOut(
             id=report.id,
-            reporter_username=reporter_username,
+            reporter_uin=reporter_uin,
             reported_user_id=reported_id,
-            reported_username=reported_username,
+            reported_uin=reported_uin,
             reported_display_name=reported_display_name,
             category=report.category,
             comment=report.comment,
@@ -104,7 +104,7 @@ async def list_reports(
             created_at=report.created_at,
             resolved_at=report.resolved_at,
         )
-        for report, reporter_username, reported_id, reported_username, reported_display_name in result.all()
+        for report, reporter_uin, reported_id, reported_uin, reported_display_name in result.all()
     ]
 
 

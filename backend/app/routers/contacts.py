@@ -139,7 +139,7 @@ async def add_contact(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.username == payload.username))
+    result = await db.execute(select(User).where(User.uin == payload.uin))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -193,7 +193,7 @@ async def add_contact(
         {
             "type": "contact_request",
             "id": current_user.id,
-            "username": current_user.username,
+            "uin": current_user.uin,
             "display_name": current_user.display_name,
         },
     )
@@ -262,7 +262,7 @@ async def block_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.username == payload.username))
+    result = await db.execute(select(User).where(User.uin == payload.uin))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -297,7 +297,7 @@ async def unblock_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.username == payload.username))
+    result = await db.execute(select(User).where(User.uin == payload.uin))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")

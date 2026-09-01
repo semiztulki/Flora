@@ -16,7 +16,7 @@ const CATEGORIES: { value: ReportCategory; label: string }[] = [
 ];
 
 export default function ReportScreen({ route, navigation }: Props) {
-  const { reportedUsername, reportedDisplayName, messageId, groupMessageId } = route.params;
+  const { reportedUin, reportedDisplayName, messageId, groupMessageId } = route.params;
   const [category, setCategory] = useState<ReportCategory | null>(null);
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -28,7 +28,7 @@ export default function ReportScreen({ route, navigation }: Props) {
     setIsSubmitting(true);
     try {
       await reportsApi.submitReport({
-        reportedUsername,
+        reportedUin,
         category,
         comment: comment.trim() || undefined,
         messageId,

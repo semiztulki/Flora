@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -16,7 +17,6 @@ type Props = NativeStackScreenProps<RootStackParamList, "Register">;
 
 export default function RegisterScreen({ navigation }: Props) {
   const { register } = useAuth();
-  const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -34,7 +34,14 @@ export default function RegisterScreen({ navigation }: Props) {
     setError(null);
     setIsSubmitting(true);
     try {
-      await register(username.trim(), displayName.trim(), password);
+      const user = await register(displayName.trim(), password);
+      // The UIN is permanent and assigned at random — this is the one and
+      // only moment it's guaranteed to be front and center, before the app
+      // moves on to the main screen.
+      Alert.alert(
+        "Добро пожаловать!",
+        `Твой номер: ${user.uin}\n\nЗапомни его — это твой постоянный ID для входа и для того, чтобы тебя добавляли в контакты. Посмотреть его снова можно в профиле.`
+      );
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? "Не удалось зарегистрироваться");
     } finally {
@@ -45,13 +52,6 @@ export default function RegisterScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Регистрация</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Логин (латиница, цифры, _)"
-        autoCapitalize="none"
-        value={username}
-        onChangeText={setUsername}
-      />
       <TextInput
         style={styles.input}
         placeholder="Имя"
@@ -82,11 +82,7 @@ export default function RegisterScreen({ navigation }: Props) {
         style={styles.button}
         onPress={handleSubmit}
         disabled={
-          isSubmitting ||
-          !username ||
-          !displayName ||
-          password.length < 6 ||
-          confirmPassword.length < 6
+          isSubmitting || !displayName || password.length < 6 || confirmPassword.length < 6
         }
       >
         {isSubmitting ? (

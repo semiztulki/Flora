@@ -9,8 +9,8 @@ interface AuthContextValue {
   token: string | null;
   isLoading: boolean;
   banInfo: BanInfo | null;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, displayName: string, password: string) => Promise<void>;
+  login: (uin: number, password: string) => Promise<void>;
+  register: (displayName: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   updateProfile: (update: { displayName?: string; bio?: string }) => Promise<void>;
   reportBanned: (info: BanInfo) => void;
@@ -57,9 +57,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setBanInfo(null);
   };
 
-  const login = async (username: string, password: string) => {
+  const login = async (uin: number, password: string) => {
     try {
-      const response = await authApi.login(username, password);
+      const response = await authApi.login(uin, password);
       await handleAuthResponse(response);
     } catch (e) {
       const ban = extractBanInfo(e);
@@ -71,9 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (username: string, displayName: string, password: string) => {
-    const response = await authApi.register(username, displayName, password);
+  const register = async (displayName: string, password: string) => {
+    const response = await authApi.register(displayName, password);
     await handleAuthResponse(response);
+    return response.user;
   };
 
   const logout = async () => {

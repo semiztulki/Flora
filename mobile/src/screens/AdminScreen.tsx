@@ -34,9 +34,10 @@ const CATEGORY_LABELS: Record<ReportCategory, string> = {
 
 export default function AdminScreen() {
   const [reports, setReports] = useState<ReportAdminView[]>([]);
-  const [username, setUsername] = useState("");
+  const [uinInput, setUinInput] = useState("");
   const [target, setTarget] = useState<AdminUserView | null>(null);
   const [reason, setReason] = useState("");
+  const [newUin, setNewUin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [, setTick] = useState(0);
@@ -56,23 +57,24 @@ export default function AdminScreen() {
     }, [loadReports])
   );
 
-  const handleLookup = useCallback(async (forUsername?: string) => {
-    const name = (forUsername ?? username).trim();
-    if (!name) return;
+  const handleLookup = useCallback(async (forUin?: number) => {
+    const uin = forUin ?? Number(uinInput);
+    if (!uin) return;
     setError(null);
     setIsLoading(true);
     try {
-      const found = await adminApi.lookupUser(name);
+      const found = await adminApi.lookupUser(uin);
       setTarget(found);
-      setUsername(name);
+      setUinInput(String(uin));
       setReason("");
+      setNewUin("");
     } catch (e: any) {
       setTarget(null);
       setError(e?.response?.data?.detail ?? "Пользователь не найден");
     } finally {
       setIsLoading(false);
     }
-  }, [username]);
+  }, [uinInput]);
 
   const handleBan = async (minutes: number | null) => {
     if (!target || !reason.trim()) return;
@@ -108,6 +110,22 @@ export default function AdminScreen() {
     setReports((prev) => prev.filter((r) => r.id !== report.id));
   };
 
+  const handleReassignUin = async () => {
+    if (!target || newUin.length !== 5) return;
+    setError(null);
+    setIsLoading(true);
+    try {
+      const updated = await adminApi.reassignUin(target.id, Number(newUin));
+      setTarget(updated);
+      setUinInput(String(updated.uin));
+      setNewUin("");
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? "Не удалось присвоить номер");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {reports.length > 0 && (
@@ -116,8 +134,8 @@ export default function AdminScreen() {
           {reports.map((report) => (
             <View key={report.id} style={styles.reportCard}>
               <Text style={styles.reportHeader}>
-                {report.reporter_username} → {report.reported_display_name} (@
-                {report.reported_username})
+                № {report.reporter_uin} → {report.reported_display_name} (№
+                {report.reported_uin})
               </Text>
               <Text style={styles.reportCategory}>{CATEGORY_LABELS[report.category]}</Text>
               {report.message_excerpt && (
@@ -129,7 +147,7 @@ export default function AdminScreen() {
               <View style={styles.reportActions}>
                 <Pressable
                   style={styles.reportActionButton}
-                  onPress={() => handleLookup(report.reported_username)}
+                  onPress={() => handleLookup(report.reported_uin)}
                 >
                   <Text style={styles.reportActionButtonText}>Открыть в модерации</Text>
                 </Pressable>
@@ -145,19 +163,20 @@ export default function AdminScreen() {
         </>
       )}
 
-      <Text style={styles.label}>Логин пользователя</Text>
+      <Text style={styles.label}>Номер пользователя (UIN)</Text>
       <View style={styles.searchRow}>
         <TextInput
           style={styles.input}
-          placeholder="username"
-          autoCapitalize="none"
-          value={username}
-          onChangeText={setUsername}
+          placeholder="12345"
+          keyboardType="number-pad"
+          maxLength={5}
+          value={uinInput}
+          onChangeText={(text) => setUinInput(text.replace(/[^0-9]/g, ""))}
         />
         <Pressable
           style={styles.searchButton}
           onPress={() => handleLookup()}
-          disabled={!username.trim()}
+          disabled={uinInput.length !== 5}
         >
           <Text style={styles.searchButtonText}>Найти</Text>
         </Pressable>
@@ -169,7 +188,25 @@ export default function AdminScreen() {
       {target && (
         <View style={styles.card}>
           <Text style={styles.name}>{target.display_name}</Text>
-          <Text style={styles.username}>@{target.username}</Text>
+          <Text style={styles.subtitle}>№ {target.uin}</Text>
+
+          <View style={styles.reassignRow}>
+            <TextInput
+              style={styles.reassignInput}
+              placeholder="Присвоить номер"
+              keyboardType="number-pad"
+              maxLength={5}
+              value={newUin}
+              onChangeText={(text) => setNewUin(text.replace(/[^0-9]/g, ""))}
+            />
+            <Pressable
+              style={styles.reassignButton}
+              onPress={handleReassignUin}
+              disabled={newUin.length !== 5}
+            >
+              <Text style={styles.reassignButtonText}>Присвоить</Text>
+            </Pressable>
+          </View>
 
           {target.active_ban ? (
             <View style={styles.banBox}>
@@ -264,7 +301,23 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   name: { fontSize: 18, fontWeight: "700" },
-  username: { color: "#868e96", marginBottom: 12 },
+  subtitle: { color: "#868e96", marginBottom: 12 },
+  reassignRow: { flexDirection: "row", marginBottom: 16 },
+  reassignInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    padding: 10,
+    marginRight: 8,
+  },
+  reassignButton: {
+    backgroundColor: "#5c7cfa",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+  },
+  reassignButtonText: { color: "#fff", fontWeight: "600" },
   banBox: { backgroundColor: "#fff5f5", borderRadius: 8, padding: 12 },
   banLabel: { fontWeight: "700", color: "#c92a2a", marginBottom: 4 },
   banReason: { marginBottom: 4 },

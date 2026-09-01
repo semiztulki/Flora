@@ -29,6 +29,9 @@ export default function ProfileScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
+      <Text style={styles.label}>Номер (UIN)</Text>
+      <Text style={styles.uinValue}>{user?.uin}</Text>
+
       <Text style={styles.label}>Имя</Text>
       <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} />
 
@@ -67,6 +70,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   bioInput: { minHeight: 80, textAlignVertical: "top" },
+  uinValue: { fontSize: 22, fontWeight: "700", marginTop: 4 },
   error: { color: "#c92a2a", marginTop: 12, textAlign: "center" },
   button: {
     backgroundColor: "#2f9e44",

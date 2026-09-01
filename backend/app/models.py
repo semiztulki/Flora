@@ -30,18 +30,40 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    # Permanent 5-digit identity, classic-ICQ style: assigned randomly at
+    # registration (see auth.assign_uin), never chosen, never changes.
+    # 10000-99999 so it never starts with 0. This *is* the login credential
+    # — there's no separate username. "Pretty" numbers (repdigits, round
+    # thousands, runs, palindromes — see reserved_uins.py) are excluded from
+    # random assignment so they can't just be grabbed by registering
+    # repeatedly; an admin can still hand one out via
+    # POST /admin/users/{user_id}/uin.
+    uin: Mapped[int] = mapped_column(unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(64))
     hashed_password: Mapped[str] = mapped_column(String(255))
     bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[PresenceStatus] = mapped_column(
         Enum(PresenceStatus), default=PresenceStatus.offline
     )
-    # Kept in sync with Settings.admin_username_set on every authenticated
+    # Kept in sync with Settings.admin_uin_set on every authenticated
     # request — see get_current_user() in app/auth.py.
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReservedUin(Base):
+    """"Pretty" 5-digit numbers held back from random assignment at
+    registration — see app/reserved_uins.py for how the set is generated
+    and seeded. Unclaimed ones just sit here, invisible to normal
+    registration; an admin can hand one to a user via
+    POST /admin/users/{user_id}/uin, which records who got it here."""
+
+    __tablename__ = "reserved_uins"
+
+    number: Mapped[int] = mapped_column(primary_key=True)
+    note: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    claimed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class Contact(Base):

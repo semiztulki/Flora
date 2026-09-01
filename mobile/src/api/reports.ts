@@ -2,14 +2,14 @@ import { api } from "./client";
 import { ReportAdminView, ReportCategory, ReportSubmitResult } from "../types";
 
 export async function submitReport(payload: {
-  reportedUsername: string;
+  reportedUin: number;
   category: ReportCategory;
   comment?: string;
   messageId?: number;
   groupMessageId?: number;
 }): Promise<ReportSubmitResult> {
   const { data } = await api.post<ReportSubmitResult>("/reports", {
-    reported_username: payload.reportedUsername,
+    reported_uin: payload.reportedUin,
     category: payload.category,
     comment: payload.comment,
     message_id: payload.messageId,

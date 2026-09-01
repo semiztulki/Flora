@@ -69,10 +69,10 @@ async def create_group(
 
     db.add(GroupMember(group_id=group.id, user_id=current_user.id))
 
-    for username in payload.member_usernames:
-        if username == current_user.username:
+    for member_uin in payload.member_uins:
+        if member_uin == current_user.uin:
             continue
-        result = await db.execute(select(User).where(User.username == username))
+        result = await db.execute(select(User).where(User.uin == member_uin))
         member_user = result.scalar_one_or_none()
         if member_user is None:
             continue
@@ -92,7 +92,7 @@ async def add_member(
 ):
     await _require_member(db, group_id, current_user.id)
 
-    result = await db.execute(select(User).where(User.username == payload.username))
+    result = await db.execute(select(User).where(User.uin == payload.uin))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")

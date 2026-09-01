@@ -260,7 +260,7 @@ export default function ChatScreen({ route, navigation }: Props) {
           text: "Пожаловаться",
           onPress: () =>
             navigation.navigate("Report", {
-              reportedUsername: contact.username,
+              reportedUin: contact.uin,
               reportedDisplayName: contact.display_name,
               messageId: item.serverId!,
             }),

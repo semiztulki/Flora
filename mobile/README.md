@@ -25,6 +25,16 @@ The API/WebSocket base URLs come from `app.json` -> `expo.extra.apiUrl` /
 works for the iOS simulator; for a physical device or Android emulator, set
 them to your machine's LAN IP, e.g. `http://192.168.1.20:8000`.
 
+## Identity (UIN)
+
+No username, no login field to fill in — classic ICQ style. Registration
+only asks for a display name and password; the server assigns a permanent
+random 5-digit number (UIN) and `RegisterScreen` shows it once in an alert
+right after signup, since that's the only guaranteed moment to catch it
+(it's also always visible on the profile screen after that). Logging back
+in, adding contacts, searching in Admin, and reporting all key off that
+number instead of a name.
+
 ## Offline-first chat
 
 Chat history is read from a local SQLite database (`src/db`), not fetched

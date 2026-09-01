@@ -261,7 +261,7 @@ export default function GroupChatScreen({ route, navigation }: Props) {
           text: "Пожаловаться",
           onPress: () =>
             navigation.navigate("Report", {
-              reportedUsername: sender.username,
+              reportedUin: sender.uin,
               reportedDisplayName: sender.display_name,
               groupMessageId: item.serverId!,
             }),

@@ -2,9 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import create_access_token, get_current_user, hash_password, verify_password
+from app.auth import assign_uin, create_access_token, get_current_user, hash_password, verify_password
 from app.bans import ban_error_detail, get_active_ban
-from app.config import settings
 from app.database import get_db
 from app.models import User
 from app.schemas import ProfileUpdate, TokenOut, UserLogin, UserOut, UserRegister
@@ -34,15 +33,14 @@ async def update_me(
 
 @router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(select(User).where(User.username == payload.username))
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
-
+    # No username to choose or collide on — the UIN is the identity, and
+    # it's assigned, never picked (see assign_uin: random, excludes the
+    # "pretty" reserved set).
+    uin = await assign_uin(db)
     user = User(
-        username=payload.username,
+        uin=uin,
         display_name=payload.display_name,
         hashed_password=hash_password(payload.password),
-        is_admin=payload.username in settings.admin_username_set,
     )
     db.add(user)
     await db.commit()
@@ -54,11 +52,11 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenOut)
 async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.username == payload.username))
+    result = await db.execute(select(User).where(User.uin == payload.uin))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid UIN or password"
         )
 
     ban = await get_active_ban(db, user.id)

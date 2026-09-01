@@ -6,13 +6,12 @@ from app.models import PresenceStatus, ReportCategory
 
 
 class UserRegister(BaseModel):
-    username: str = Field(min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
     display_name: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=6, max_length=128)
 
 
 class UserLogin(BaseModel):
-    username: str
+    uin: int
     password: str
 
 
@@ -20,7 +19,7 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str
+    uin: int
     display_name: str
     bio: str | None = None
     status: PresenceStatus
@@ -40,14 +39,14 @@ class TokenOut(BaseModel):
 
 
 class ContactAdd(BaseModel):
-    username: str
+    uin: int
 
 
 class ContactOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str
+    uin: int
     display_name: str
     bio: str | None = None
     status: PresenceStatus
@@ -71,7 +70,7 @@ class ContactRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str
+    uin: int
     display_name: str
     bio: str | None = None
 
@@ -80,7 +79,7 @@ class BlockOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str
+    uin: int
     display_name: str
 
 
@@ -116,7 +115,7 @@ class GroupMemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str
+    uin: int
     display_name: str
 
 
@@ -130,11 +129,11 @@ class GroupOut(BaseModel):
 
 class GroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
-    member_usernames: list[str] = Field(default_factory=list)
+    member_uins: list[int] = Field(default_factory=list)
 
 
 class GroupAddMember(BaseModel):
-    username: str
+    uin: int
 
 
 class GroupMessageOut(BaseModel):
@@ -171,7 +170,7 @@ class AdminUserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    username: str
+    uin: int
     display_name: str
     bio: str | None = None
     status: PresenceStatus
@@ -180,8 +179,12 @@ class AdminUserOut(BaseModel):
     active_ban: BanOut | None = None
 
 
+class UinReassign(BaseModel):
+    uin: int = Field(ge=10000, le=99999)
+
+
 class ReportCreate(BaseModel):
-    reported_username: str
+    reported_uin: int
     category: ReportCategory
     comment: str | None = Field(default=None, max_length=1000)
     # At most one of these — the specific message being reported, if any.
@@ -204,9 +207,9 @@ class ReportOut(BaseModel):
 
 class ReportAdminOut(BaseModel):
     id: int
-    reporter_username: str
+    reporter_uin: int
     reported_user_id: int
-    reported_username: str
+    reported_uin: int
     reported_display_name: str
     category: ReportCategory
     comment: str | None

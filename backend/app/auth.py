@@ -1,3 +1,4 @@
+import random
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -10,9 +11,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bans import ban_error_detail, get_active_ban
 from app.config import settings
 from app.database import get_db
-from app.models import User
+from app.models import ReservedUin, User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+UIN_MIN = 10000
+UIN_MAX = 99999
+
+
+async def assign_uin(db: AsyncSession) -> int:
+    """Picks a random unused, non-"pretty" 5-digit UIN. The space is 90000
+    numbers with ~1% reserved and, realistically, a tiny fraction ever taken
+    — collisions are cheap enough that a plain retry loop is simpler and
+    just as correct as a single clever query."""
+    for _ in range(500):
+        candidate = random.randint(UIN_MIN, UIN_MAX)
+        reserved = await db.get(ReservedUin, candidate)
+        if reserved is not None:
+            continue
+        taken = await db.execute(select(User.id).where(User.uin == candidate))
+        if taken.scalar_one_or_none() is not None:
+            continue
+        return candidate
+    raise RuntimeError("Could not allocate a UIN — space exhausted or unlucky streak")
 
 
 def hash_password(password: str) -> str:
@@ -56,7 +77,7 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
-    should_be_admin = user.username in settings.admin_username_set
+    should_be_admin = user.uin in settings.admin_uin_set
     if user.is_admin != should_be_admin:
         user.is_admin = should_be_admin
         await db.commit()

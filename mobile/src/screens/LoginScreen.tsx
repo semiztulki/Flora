@@ -16,7 +16,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
   const { login } = useAuth();
-  const [username, setUsername] = useState("");
+  const [uin, setUin] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +26,7 @@ export default function LoginScreen({ navigation }: Props) {
     setError(null);
     setIsSubmitting(true);
     try {
-      await login(username.trim(), password);
+      await login(Number(uin), password);
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? "Не удалось войти");
     } finally {
@@ -39,10 +39,11 @@ export default function LoginScreen({ navigation }: Props) {
       <Text style={styles.title}>Flora</Text>
       <TextInput
         style={styles.input}
-        placeholder="Логин"
-        autoCapitalize="none"
-        value={username}
-        onChangeText={setUsername}
+        placeholder="Номер (UIN)"
+        keyboardType="number-pad"
+        maxLength={5}
+        value={uin}
+        onChangeText={(text) => setUin(text.replace(/[^0-9]/g, ""))}
       />
       <View style={styles.passwordRow}>
         <TextInput
@@ -60,7 +61,7 @@ export default function LoginScreen({ navigation }: Props) {
       <Pressable
         style={styles.button}
         onPress={handleSubmit}
-        disabled={isSubmitting || !username || !password}
+        disabled={isSubmitting || uin.length !== 5 || !password}
       >
         {isSubmitting ? (
           <ActivityIndicator color="#fff" />

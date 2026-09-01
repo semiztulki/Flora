@@ -6,16 +6,16 @@ export async function fetchGroups(): Promise<Group[]> {
   return data;
 }
 
-export async function createGroup(name: string, memberUsernames: string[]): Promise<Group> {
+export async function createGroup(name: string, memberUins: number[]): Promise<Group> {
   const { data } = await api.post<Group>("/groups", {
     name,
-    member_usernames: memberUsernames,
+    member_uins: memberUins,
   });
   return data;
 }
 
-export async function addGroupMember(groupId: number, username: string): Promise<Group> {
-  const { data } = await api.post<Group>(`/groups/${groupId}/members`, { username });
+export async function addGroupMember(groupId: number, uin: number): Promise<Group> {
+  const { data } = await api.post<Group>(`/groups/${groupId}/members`, { uin });
   return data;
 }
 

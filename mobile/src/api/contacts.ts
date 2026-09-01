@@ -6,8 +6,8 @@ export async function fetchContacts(): Promise<User[]> {
   return data;
 }
 
-export async function addContact(username: string): Promise<ContactAddResult> {
-  const { data } = await api.post<ContactAddResult>("/contacts", { username });
+export async function addContact(uin: number): Promise<ContactAddResult> {
+  const { data } = await api.post<ContactAddResult>("/contacts", { uin });
   return data;
 }
 
@@ -25,13 +25,13 @@ export async function declineRequest(requesterId: number): Promise<void> {
   await api.post(`/contacts/requests/${requesterId}/decline`);
 }
 
-export async function blockUser(username: string): Promise<BlockedUser> {
-  const { data } = await api.post<BlockedUser>("/contacts/block", { username });
+export async function blockUser(uin: number): Promise<BlockedUser> {
+  const { data } = await api.post<BlockedUser>("/contacts/block", { uin });
   return data;
 }
 
-export async function unblockUser(username: string): Promise<void> {
-  await api.post("/contacts/unblock", { username });
+export async function unblockUser(uin: number): Promise<void> {
+  await api.post("/contacts/unblock", { uin });
 }
 
 export async function fetchBlocked(): Promise<BlockedUser[]> {

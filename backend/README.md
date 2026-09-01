@@ -4,6 +4,20 @@ FastAPI + WebSocket backend for the Flora messenger MVP: authorization-gated
 contacts, block list, group chats, real-time messages with typing indicators,
 and presence status (including invisible mode).
 
+## Identity: UIN, not username
+
+Classic-ICQ style — there's no username at all. Every account gets a
+permanent, random 5-digit number (`User.uin`, 10000-99999) at registration;
+it's the login credential and the only way to look someone up (contacts,
+groups, reports, admin). It's never chosen and never changes.
+
+"Pretty" numbers — repdigits (`11111`), round thousands (`10000`), 5-digit
+runs (`12345`, `54321`), and palindromes (`12321`) — are excluded from
+random assignment (`app/reserved_uins.py`, seeded into `reserved_uins` at
+every startup, ~1% of the number space) specifically so they can't be
+farmed by registering repeatedly. An admin can still hand one out
+deliberately via `POST /admin/users/{user_id}/uin`.
+
 ## Setup
 
 ```bash
@@ -36,24 +50,26 @@ still be the right call before ever pointing this at Postgres in production.
 
 ## API
 
-- `POST /auth/register` — `{username, display_name, password}` -> `{access_token, user}`
-- `POST /auth/login` — `{username, password}` -> `{access_token, user}`
+- `POST /auth/register` — `{display_name, password}` -> `{access_token, user}`
+  (the `user.uin` in the response is the only time it's convenient to grab —
+  it's also always visible on your own profile screen)
+- `POST /auth/login` — `{uin, password}` -> `{access_token, user}`
 - `GET /auth/me` — current user, used to restore a session from a stored token
 - `PATCH /auth/me` — `{display_name?, bio?}` update your own profile
 - `GET /contacts` — list authorized (accepted) contacts
-- `POST /contacts` — `{username}` send a contact request; if they already sent
+- `POST /contacts` — `{uin}` send a contact request; if they already sent
   you one, both sides auto-accept instead of leaving two pending requests
 - `DELETE /contacts/{contact_id}` — remove someone from *your* contact list
   only (one-directional — they keep you until they remove you too)
 - `GET /contacts/requests` — incoming requests waiting for your authorization
 - `POST /contacts/requests/{requester_id}/accept` / `.../decline`
-- `POST /contacts/block` / `POST /contacts/unblock` — `{username}`
+- `POST /contacts/block` / `POST /contacts/unblock` — `{uin}`
 - `GET /contacts/blocked` — your block list
 - `GET /messages/{contact_id}?since_id=0` — 1-to-1 history; pass the highest
   cached message id for delta sync instead of refetching everything
 - `GET /groups` — list groups the current user belongs to
-- `POST /groups` — `{name, member_usernames: [...]}` create a group
-- `POST /groups/{group_id}/members` — `{username}` add a member to a group
+- `POST /groups` — `{name, member_uins: [...]}` create a group
+- `POST /groups/{group_id}/members` — `{uin}` add a member to a group
 - `GET /groups/{group_id}/messages?since_id=0` — group history, same delta-sync param
 - `POST /attachments` — multipart `file` upload (image only, capped at
   `max_attachment_bytes`) -> `{id, content_type, size_bytes, width, height}`
@@ -63,11 +79,14 @@ still be the right call before ever pointing this at Postgres in production.
 - `PATCH /contacts/{contact_id}/visibility` — `{visible_when_invisible: bool}`
   grants/revokes one contact's ability to see your real status while you're
   invisible, instead of "offline" like everyone else
-- `GET /admin/users/{username}` — user info + active ban, if any (admin only)
+- `GET /admin/users/{uin}` — user info + active ban, if any (admin only)
 - `POST /admin/users/{user_id}/ban` — `{duration_minutes, reason}`
   (`duration_minutes: null` = permanent) — admin only, force-disconnects the
   user's active WS connections immediately
 - `POST /admin/users/{user_id}/unban` — admin only, lifts a ban early
+- `POST /admin/users/{user_id}/uin` — `{uin}` admin only, hands a user a
+  specific number (409 if it's already someone else's) — the escape hatch
+  for granting one of the reserved "pretty" numbers deliberately
 - `WS /ws?token=<access_token>&status=online` — real-time channel. `status`
   (optional, defaults to `online`) sets your presence for this connection —
   pass `invisible` or `dnd` to avoid a flash of "online" before you can
@@ -116,9 +135,9 @@ replacing the local-disk read/write in `app/routers/attachments.py`.
 ## Moderation
 
 There's one role: admin. Membership is config-driven, not stored as a
-separate table — set `ADMIN_USERNAMES` (comma-separated) in `.env` to your
-own username after you register, and it's synced onto `User.is_admin` on
-every authenticated request (so it takes effect on your next request, no
+separate table — set `ADMIN_UINS` (comma-separated) in `.env` to your own
+UIN after you register, and it's synced onto `User.is_admin` on every
+authenticated request (so it takes effect on your next request, no
 migration needed). Admins can look up any user and ban them for a chosen
 duration or permanently, with a reason; the ban blocks login, every
 authenticated REST call, and new WS connections (existing ones are dropped

@@ -47,7 +47,7 @@ export default function ContactsScreen({ navigation }: Props) {
   const [blocked, setBlocked] = useState<BlockedUser[]>([]);
   const [unread, setUnread] = useState<Record<number, number>>({});
   const [unreadGroups, setUnreadGroups] = useState<Record<number, number>>({});
-  const [newUsername, setNewUsername] = useState("");
+  const [newUin, setNewUin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [myStatus, setMyStatus] = useState<SettableStatus>("online");
@@ -147,13 +147,13 @@ export default function ContactsScreen({ navigation }: Props) {
     setError(null);
     setInfo(null);
     try {
-      const result = await contactsApi.addContact(newUsername.trim());
+      const result = await contactsApi.addContact(Number(newUin));
       if (result.relationship_status === "accepted") {
         setContacts((prev) => [...prev, result.contact]);
       } else {
         setInfo(`Заявка отправлена пользователю ${result.contact.display_name}`);
       }
-      setNewUsername("");
+      setNewUin("");
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? "Не удалось добавить контакт");
     }
@@ -177,7 +177,7 @@ export default function ContactsScreen({ navigation }: Props) {
         text: "Заблокировать",
         style: "destructive",
         onPress: async () => {
-          const blockedUser = await contactsApi.blockUser(contact.username);
+          const blockedUser = await contactsApi.blockUser(contact.uin);
           setContacts((prev) => prev.filter((c) => c.id !== contact.id));
           setBlocked((prev) => [...prev, blockedUser]);
         },
@@ -257,7 +257,7 @@ export default function ContactsScreen({ navigation }: Props) {
         text: "Пожаловаться",
         onPress: () =>
           navigation.navigate("Report", {
-            reportedUsername: contact.username,
+            reportedUin: contact.uin,
             reportedDisplayName: contact.display_name,
           }),
       });
@@ -272,7 +272,7 @@ export default function ContactsScreen({ navigation }: Props) {
   };
 
   const handleUnblock = async (blockedUser: BlockedUser) => {
-    await contactsApi.unblockUser(blockedUser.username);
+    await contactsApi.unblockUser(blockedUser.uin);
     setBlocked((prev) => prev.filter((b) => b.id !== blockedUser.id));
   };
 
@@ -333,12 +333,13 @@ export default function ContactsScreen({ navigation }: Props) {
       <View style={styles.addRow}>
         <TextInput
           style={styles.input}
-          placeholder="Логин контакта"
-          autoCapitalize="none"
-          value={newUsername}
-          onChangeText={setNewUsername}
+          placeholder="Номер контакта (UIN)"
+          keyboardType="number-pad"
+          maxLength={5}
+          value={newUin}
+          onChangeText={(text) => setNewUin(text.replace(/[^0-9]/g, ""))}
         />
-        <Pressable style={styles.addButton} onPress={handleAddContact} disabled={!newUsername}>
+        <Pressable style={styles.addButton} onPress={handleAddContact} disabled={newUin.length !== 5}>
           <Text style={styles.addButtonText}>+</Text>
         </Pressable>
       </View>
@@ -369,7 +370,7 @@ export default function ContactsScreen({ navigation }: Props) {
               <View style={styles.row}>
                 <View style={styles.rowText}>
                   <Text style={styles.name}>{item.request.display_name}</Text>
-                  <Text style={styles.username}>@{item.request.username}</Text>
+                  <Text style={styles.subtitle}>№ {item.request.uin}</Text>
                 </View>
                 <Pressable
                   style={[styles.smallButton, styles.acceptButton]}
@@ -403,7 +404,7 @@ export default function ContactsScreen({ navigation }: Props) {
                     {item.contact.display_name}
                     {item.contact.id === user?.id ? " (Заметки для себя)" : ""}
                   </Text>
-                  <Text style={styles.username}>@{item.contact.username}</Text>
+                  <Text style={styles.subtitle}>№ {item.contact.uin}</Text>
                 </View>
                 {unreadCount > 0 && (
                   <View style={styles.badge}>
@@ -424,7 +425,7 @@ export default function ContactsScreen({ navigation }: Props) {
                 <View style={[styles.dot, styles.groupDot]} />
                 <View style={styles.rowText}>
                   <Text style={styles.name}>{item.group.name}</Text>
-                  <Text style={styles.username}>{item.group.members.length} участников</Text>
+                  <Text style={styles.subtitle}>{item.group.members.length} участников</Text>
                 </View>
                 {unreadCount > 0 && (
                   <View style={styles.badge}>
@@ -439,7 +440,7 @@ export default function ContactsScreen({ navigation }: Props) {
             <Pressable style={styles.row} onPress={() => handleUnblock(item.blocked)}>
               <View style={styles.rowText}>
                 <Text style={styles.name}>{item.blocked.display_name}</Text>
-                <Text style={styles.username}>@{item.blocked.username}</Text>
+                <Text style={styles.subtitle}>№ {item.blocked.uin}</Text>
               </View>
               <Text style={styles.link}>разблокировать</Text>
             </Pressable>
@@ -529,7 +530,7 @@ const styles = StyleSheet.create({
   groupDot: { backgroundColor: "#5c7cfa" },
   rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },
-  username: { color: "#868e96" },
+  subtitle: { color: "#868e96" },
   badge: {
     minWidth: 22,
     height: 22,

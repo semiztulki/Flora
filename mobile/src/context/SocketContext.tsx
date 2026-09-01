@@ -11,7 +11,7 @@ type MessageListener = (message: Message) => void;
 type GroupMessageListener = (message: GroupMessage) => void;
 type PresenceListener = (userId: number, status: PresenceStatus, lastSeen: string) => void;
 type TypingListener = (senderId: number, recipientId?: number, groupId?: number) => void;
-type ContactRequestListener = (id: number, username: string, displayName: string) => void;
+type ContactRequestListener = (id: number, uin: number, displayName: string) => void;
 
 interface SocketContextValue {
   sendMessage: (
@@ -176,7 +176,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         } else if (data.type === "contact_request") {
           if (desiredStatus.current !== "dnd") playContactRequestSound();
           contactRequestListeners.current.forEach((listener) =>
-            listener(data.id, data.username, data.display_name)
+            listener(data.id, data.uin, data.display_name)
           );
         }
       };

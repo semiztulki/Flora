@@ -5,7 +5,7 @@ export type SettableStatus = "online" | "away" | "dnd" | "invisible";
 
 export interface User {
   id: number;
-  username: string;
+  uin: number;
   display_name: string;
   bio: string | null;
   status: PresenceStatus;
@@ -33,7 +33,7 @@ export interface Ban {
 
 export interface AdminUserView {
   id: number;
-  username: string;
+  uin: number;
   display_name: string;
   bio: string | null;
   status: PresenceStatus;
@@ -57,9 +57,9 @@ export interface ReportSubmitResult {
 
 export interface ReportAdminView {
   id: number;
-  reporter_username: string;
+  reporter_uin: number;
   reported_user_id: number;
-  reported_username: string;
+  reported_uin: number;
   reported_display_name: string;
   category: ReportCategory;
   comment: string | null;
@@ -94,7 +94,7 @@ export interface Message {
 
 export interface GroupMember {
   id: number;
-  username: string;
+  uin: number;
   display_name: string;
 }
 
@@ -118,7 +118,7 @@ export interface GroupMessage {
 
 export interface ContactRequest {
   id: number;
-  username: string;
+  uin: number;
   display_name: string;
   bio: string | null;
 }
@@ -130,7 +130,7 @@ export interface ContactAddResult {
 
 export interface BlockedUser {
   id: number;
-  username: string;
+  uin: number;
   display_name: string;
 }
 
@@ -142,7 +142,7 @@ export type ServerEvent =
   | { type: "presence"; user_id: number; status: PresenceStatus; last_seen: string }
   | { type: "typing"; sender_id: number; recipient_id?: number; group_id?: number }
   | { type: "banned"; reason: string; expires_at: string | null }
-  | { type: "contact_request"; id: number; username: string; display_name: string }
+  | { type: "contact_request"; id: number; uin: number; display_name: string }
   | { type: "error"; detail: string }
   | { type: "pong" };
 
@@ -158,7 +158,7 @@ export type RootStackParamList = {
   Banned: undefined;
   Admin: undefined;
   Report: {
-    reportedUsername: string;
+    reportedUin: number;
     reportedDisplayName: string;
     messageId?: number;
     groupMessageId?: number;

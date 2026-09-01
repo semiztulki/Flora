@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user
 from app.bans import get_active_ban
 from app.database import get_db
-from app.models import Ban, User
-from app.schemas import AdminUserOut, BanCreate, BanOut
+from app.models import Ban, ReservedUin, User
+from app.schemas import AdminUserOut, BanCreate, BanOut, UinReassign
 from app.websocket_manager import manager
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -24,7 +24,7 @@ async def _admin_user_out(db: AsyncSession, target: User) -> AdminUserOut:
     active_ban = await get_active_ban(db, target.id)
     return AdminUserOut(
         id=target.id,
-        username=target.username,
+        uin=target.uin,
         display_name=target.display_name,
         bio=target.bio,
         status=target.status,
@@ -34,16 +34,54 @@ async def _admin_user_out(db: AsyncSession, target: User) -> AdminUserOut:
     )
 
 
-@router.get("/users/{username}", response_model=AdminUserOut)
+@router.get("/users/{uin}", response_model=AdminUserOut)
 async def lookup_user(
-    username: str,
+    uin: int,
     _admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.username == username))
+    result = await db.execute(select(User).where(User.uin == uin))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return await _admin_user_out(db, target)
+
+
+@router.post("/users/{user_id}/uin", response_model=AdminUserOut)
+async def reassign_uin(
+    user_id: int,
+    payload: UinReassign,
+    _admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hands a user a specific number — the escape hatch for "pretty" numbers
+    held back from random registration (repdigits, round thousands, runs,
+    palindromes): an admin can still grant one deliberately, e.g. to
+    themselves, or as a gift/sale, without opening the reserved set up to
+    everyone via ordinary registration."""
+    target = await db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    taken = await db.execute(select(User).where(User.uin == payload.uin, User.id != user_id))
+    if taken.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="UIN already taken")
+
+    old_uin = target.uin
+    target.uin = payload.uin
+
+    reserved = await db.get(ReservedUin, payload.uin)
+    if reserved is not None:
+        reserved.claimed_by_user_id = target.id
+
+    # Freed number goes back to being reserved-or-random per whatever it
+    # already was — nothing to do; it just becomes available again since
+    # no other row references it.
+    old_reserved = await db.get(ReservedUin, old_uin)
+    if old_reserved is not None:
+        old_reserved.claimed_by_user_id = None
+
+    await db.commit()
     return await _admin_user_out(db, target)
 
 

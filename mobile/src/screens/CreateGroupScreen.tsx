@@ -18,7 +18,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "CreateGroup">;
 
 export default function CreateGroupScreen({ navigation }: Props) {
   const [contacts, setContacts] = useState<User[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,11 +27,11 @@ export default function CreateGroupScreen({ navigation }: Props) {
     contactsApi.fetchContacts().then(setContacts);
   }, []);
 
-  const toggle = (username: string) => {
+  const toggle = (uin: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(username)) next.delete(username);
-      else next.add(username);
+      if (next.has(uin)) next.delete(uin);
+      else next.add(uin);
       return next;
     });
   };
@@ -62,13 +62,13 @@ export default function CreateGroupScreen({ navigation }: Props) {
         data={contacts}
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => {
-          const isSelected = selected.has(item.username);
+          const isSelected = selected.has(item.uin);
           return (
-            <Pressable style={styles.row} onPress={() => toggle(item.username)}>
+            <Pressable style={styles.row} onPress={() => toggle(item.uin)}>
               <View style={[styles.checkbox, isSelected && styles.checkboxChecked]} />
               <View>
                 <Text style={styles.name}>{item.display_name}</Text>
-                <Text style={styles.username}>@{item.username}</Text>
+                <Text style={styles.rowSubtitle}>№ {item.uin}</Text>
               </View>
             </Pressable>
           );
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   },
   checkboxChecked: { backgroundColor: "#2f9e44", borderColor: "#2f9e44" },
   name: { fontSize: 16, fontWeight: "600" },
-  username: { color: "#868e96" },
+  rowSubtitle: { color: "#868e96" },
   empty: { textAlign: "center", color: "#868e96", marginTop: 24 },
   error: { color: "#c92a2a", marginTop: 8, textAlign: "center" },
   button: {
