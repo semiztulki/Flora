@@ -20,6 +20,7 @@ import { useSocket } from "../context/SocketContext";
 import { clearMessagesForPeer, getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
 import { getUnreadGroupCounts, upsertConfirmedGroupMessage } from "../db/groupMessages";
 import { BlockedUser, ContactRequest, Group, RootStackParamList, SettableStatus, User } from "../types";
+import { statusColor } from "../utils/presence";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
 
@@ -28,17 +29,6 @@ type Row =
   | { kind: "contact"; contact: User }
   | { kind: "group"; group: Group }
   | { kind: "blocked"; blocked: BlockedUser };
-
-const statusColor: Record<User["status"], string> = {
-  online: "#2f9e44",
-  away: "#fab005",
-  dnd: "#f76707",
-  // Classic ICQ gray. Only ever shown to you (your own status dot) or to a
-  // contact you've specifically let see through invisible mode — everyone
-  // else is shown "offline" (red) instead, never this color.
-  invisible: "#868e96",
-  offline: "#e03131",
-};
 
 const STATUS_OPTIONS: { value: SettableStatus; label: string }[] = [
   { value: "online", label: "В сети" },

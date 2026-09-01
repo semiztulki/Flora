@@ -30,7 +30,8 @@ import {
   markRead,
   upsertConfirmedMessage,
 } from "../db/messages";
-import { RootStackParamList } from "../types";
+import { PresenceStatus, RootStackParamList } from "../types";
+import { statusColor, statusLabel } from "../utils/presence";
 import { generateClientId } from "../utils/uuid";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Chat">;
@@ -58,9 +59,10 @@ function toLocalAttachment(
 export default function ChatScreen({ route, navigation }: Props) {
   const { contact } = route.params;
   const { user } = useAuth();
-  const { sendMessage, onMessage, sendTyping, onTyping } = useSocket();
+  const { sendMessage, onMessage, sendTyping, onTyping, onPresence } = useSocket();
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [contactStatus, setContactStatus] = useState<PresenceStatus>(contact.status);
   const [isContactTyping, setIsContactTyping] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -73,6 +75,16 @@ export default function ChatScreen({ route, navigation }: Props) {
       title: isContactTyping ? `${contact.display_name} печатает…` : contact.display_name,
     });
   }, [navigation, contact, isContactTyping]);
+
+  // The contact param is a snapshot from whenever their row was tapped on
+  // the Contacts screen — keep the status live while the chat is open
+  // instead of leaving it stuck at that moment.
+  useEffect(() => {
+    return onPresence((userId, status) => {
+      if (userId !== contact.id) return;
+      setContactStatus(status);
+    });
+  }, [onPresence, contact.id]);
 
   useEffect(() => {
     return onTyping((senderId, recipientId) => {
@@ -264,7 +276,10 @@ export default function ChatScreen({ route, navigation }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
-      {contact.bio && <Text style={styles.bio}>{contact.bio}</Text>}
+      <View style={styles.statusRow}>
+        <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
+        <Text style={styles.statusText}>{statusLabel[contactStatus]}</Text>
+      </View>
       <FlatList
         ref={listRef}
         data={messages}
@@ -324,14 +339,16 @@ export default function ChatScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  bio: {
-    fontSize: 12,
-    color: "#868e96",
-    textAlign: "center",
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: "#f1f3f5",
   },
+  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  statusText: { fontSize: 12, color: "#868e96" },
   list: { padding: 16 },
   bubble: { maxWidth: "80%", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8 },
   bubbleMine: { backgroundColor: "#d3f2dd", alignSelf: "flex-end" },
