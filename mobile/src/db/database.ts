@@ -27,6 +27,25 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
           peer_id INTEGER PRIMARY KEY,
           last_read_server_id INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS group_messages (
+          local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_id INTEGER,
+          client_id TEXT UNIQUE,
+          group_id INTEGER NOT NULL,
+          sender_id INTEGER NOT NULL,
+          body TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'sent'
+        );
+        CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_group_messages_server_id
+          ON group_messages(server_id) WHERE server_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS group_read_state (
+          group_id INTEGER PRIMARY KEY,
+          last_read_server_id INTEGER NOT NULL DEFAULT 0
+        );
       `);
       return db;
     });

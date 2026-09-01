@@ -63,3 +63,46 @@ class Message(Base):
 
     sender: Mapped["User"] = relationship(foreign_keys=[sender_id])
     recipient: Mapped["User"] = relationship(foreign_keys=[recipient_id])
+
+
+class Group(Base):
+    __tablename__ = "groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Store-and-forward bookkeeping per member, mirrors Message.delivered but since a
+    # group message has many recipients we track "delivered up to" per membership
+    # instead of a single flag per message.
+    last_delivered_message_id: Mapped[int] = mapped_column(default=0)
+
+    group: Mapped["Group"] = relationship()
+    user: Mapped["User"] = relationship()
+
+
+class GroupMessage(Base):
+    __tablename__ = "group_messages"
+    __table_args__ = (
+        UniqueConstraint("sender_id", "client_id", name="uq_group_sender_client_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    body: Mapped[str] = mapped_column(String(4000))
+    client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+    group: Mapped["Group"] = relationship()
+    sender: Mapped["User"] = relationship()

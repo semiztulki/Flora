@@ -2,8 +2,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  FlatList,
   Pressable,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -11,12 +11,18 @@ import {
 } from "react-native";
 
 import * as contactsApi from "../api/contacts";
+import * as groupsApi from "../api/groups";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
-import { RootStackParamList, User } from "../types";
+import { getUnreadGroupCounts, upsertConfirmedGroupMessage } from "../db/groupMessages";
+import { Group, RootStackParamList, User } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
+
+type Row =
+  | { kind: "contact"; contact: User }
+  | { kind: "group"; group: Group };
 
 const statusColor: Record<User["status"], string> = {
   online: "#2f9e44",
@@ -26,31 +32,44 @@ const statusColor: Record<User["status"], string> = {
 
 export default function ContactsScreen({ navigation }: Props) {
   const { user, logout } = useAuth();
-  const { onPresence, onMessage, isConnected } = useSocket();
+  const { onPresence, onMessage, onGroupMessage, isConnected } = useSocket();
   const [contacts, setContacts] = useState<User[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [unread, setUnread] = useState<Record<number, number>>({});
+  const [unreadGroups, setUnreadGroups] = useState<Record<number, number>>({});
   const [newUsername, setNewUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const loadContacts = useCallback(async () => {
-    const data = await contactsApi.fetchContacts();
-    setContacts(data);
+    setContacts(await contactsApi.fetchContacts());
+  }, []);
+
+  const loadGroups = useCallback(async () => {
+    setGroups(await groupsApi.fetchGroups());
   }, []);
 
   const refreshUnread = useCallback(async () => {
     setUnread(await getUnreadCounts());
   }, []);
 
+  const refreshUnreadGroups = useCallback(async () => {
+    if (!user) return;
+    setUnreadGroups(await getUnreadGroupCounts(user.id));
+  }, [user]);
+
   useEffect(() => {
     loadContacts();
-  }, [loadContacts]);
+    loadGroups();
+  }, [loadContacts, loadGroups]);
 
-  // Unread badges can change while this screen is backgrounded (e.g. you were
-  // reading a chat, or the store-and-forward replay landed) — recompute on focus.
+  // Unread badges (and the groups list, if you were just added to one) can
+  // change while this screen is backgrounded — recompute on focus.
   useFocusEffect(
     useCallback(() => {
       refreshUnread();
-    }, [refreshUnread])
+      refreshUnreadGroups();
+      loadGroups();
+    }, [refreshUnread, refreshUnreadGroups, loadGroups])
   );
 
   useEffect(() => {
@@ -79,6 +98,19 @@ export default function ContactsScreen({ navigation }: Props) {
     });
   }, [onMessage, user, refreshUnread]);
 
+  useEffect(() => {
+    return onGroupMessage((message) => {
+      upsertConfirmedGroupMessage({
+        serverId: message.id,
+        clientId: message.client_id,
+        groupId: message.group_id,
+        senderId: message.sender_id,
+        body: message.body,
+        createdAt: message.created_at,
+      }).then(refreshUnreadGroups);
+    });
+  }, [onGroupMessage, refreshUnreadGroups]);
+
   const handleAddContact = async () => {
     setError(null);
     try {
@@ -89,6 +121,17 @@ export default function ContactsScreen({ navigation }: Props) {
       setError(e?.response?.data?.detail ?? "Не удалось добавить контакт");
     }
   };
+
+  const sections = [
+    {
+      title: "Контакты",
+      data: contacts.map((contact): Row => ({ kind: "contact", contact })),
+    },
+    {
+      title: "Группы",
+      data: groups.map((group): Row => ({ kind: "group", group })),
+    },
+  ];
 
   return (
     <View style={styles.container}>
@@ -114,20 +157,55 @@ export default function ContactsScreen({ navigation }: Props) {
       </View>
       {error && <Text style={styles.error}>{error}</Text>}
 
-      <FlatList
-        data={contacts}
-        keyExtractor={(item) => String(item.id)}
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) =>
+          item.kind === "contact" ? `c-${item.contact.id}` : `g-${item.group.id}`
+        }
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            {section.title === "Группы" && (
+              <Pressable onPress={() => navigation.navigate("CreateGroup")}>
+                <Text style={styles.sectionAction}>+ создать</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
         renderItem={({ item }) => {
-          const unreadCount = unread[item.id] ?? 0;
+          if (item.kind === "contact") {
+            const unreadCount = unread[item.contact.id] ?? 0;
+            return (
+              <Pressable
+                style={styles.row}
+                onPress={() => navigation.navigate("Chat", { contact: item.contact })}
+              >
+                <View
+                  style={[styles.dot, { backgroundColor: statusColor[item.contact.status] }]}
+                />
+                <View style={styles.rowText}>
+                  <Text style={styles.name}>{item.contact.display_name}</Text>
+                  <Text style={styles.username}>@{item.contact.username}</Text>
+                </View>
+                {unreadCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{unreadCount}</Text>
+                  </View>
+                )}
+              </Pressable>
+            );
+          }
+
+          const unreadCount = unreadGroups[item.group.id] ?? 0;
           return (
             <Pressable
               style={styles.row}
-              onPress={() => navigation.navigate("Chat", { contact: item })}
+              onPress={() => navigation.navigate("GroupChat", { group: item.group })}
             >
-              <View style={[styles.dot, { backgroundColor: statusColor[item.status] }]} />
+              <View style={[styles.dot, styles.groupDot]} />
               <View style={styles.rowText}>
-                <Text style={styles.name}>{item.display_name}</Text>
-                <Text style={styles.username}>@{item.username}</Text>
+                <Text style={styles.name}>{item.group.name}</Text>
+                <Text style={styles.username}>{item.group.members.length} участников</Text>
               </View>
               {unreadCount > 0 && (
                 <View style={styles.badge}>
@@ -137,7 +215,13 @@ export default function ContactsScreen({ navigation }: Props) {
             </Pressable>
           );
         }}
-        ListEmptyComponent={<Text style={styles.empty}>Пока нет контактов</Text>}
+        renderSectionFooter={({ section }) =>
+          section.data.length === 0 ? (
+            <Text style={styles.empty}>
+              {section.title === "Группы" ? "Пока нет групп" : "Пока нет контактов"}
+            </Text>
+          ) : null
+        }
       />
     </View>
   );
@@ -168,6 +252,16 @@ const styles = StyleSheet.create({
   },
   addButtonText: { color: "#fff", fontSize: 22, lineHeight: 22 },
   error: { color: "#c92a2a", marginBottom: 8 },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  sectionTitle: { fontSize: 13, fontWeight: "700", color: "#868e96", textTransform: "uppercase" },
+  sectionAction: { color: "#2f9e44", fontWeight: "600" },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -176,6 +270,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f1f3f5",
   },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
+  groupDot: { backgroundColor: "#5c7cfa" },
   rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },
   username: { color: "#868e96" },
@@ -189,5 +284,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  empty: { textAlign: "center", color: "#868e96", marginTop: 40 },
+  empty: { textAlign: "center", color: "#868e96", paddingVertical: 12 },
 });

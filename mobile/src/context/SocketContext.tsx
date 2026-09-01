@@ -1,17 +1,21 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { getPendingMessages } from "../db/messages";
+import { getPendingGroupMessages } from "../db/groupMessages";
 import { WS_URL } from "../config";
 import { useAuth } from "./AuthContext";
-import { Message, PresenceStatus, ServerEvent } from "../types";
+import { GroupMessage, Message, PresenceStatus, ServerEvent } from "../types";
 
 type MessageListener = (message: Message) => void;
+type GroupMessageListener = (message: GroupMessage) => void;
 type PresenceListener = (userId: number, status: PresenceStatus, lastSeen: string) => void;
 
 interface SocketContextValue {
   sendMessage: (recipientId: number, body: string, clientId: string) => void;
+  sendGroupMessage: (groupId: number, body: string, clientId: string) => void;
   setPresence: (status: "online" | "away") => void;
   onMessage: (listener: MessageListener) => () => void;
+  onGroupMessage: (listener: GroupMessageListener) => () => void;
   onPresence: (listener: PresenceListener) => () => void;
   isConnected: boolean;
 }
@@ -27,6 +31,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
   const messageListeners = useRef(new Set<MessageListener>());
+  const groupMessageListeners = useRef(new Set<GroupMessageListener>());
   const presenceListeners = useRef(new Set<PresenceListener>());
   const [isConnected, setIsConnected] = useState(false);
 
@@ -53,6 +58,19 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           JSON.stringify({
             type: "message",
             recipient_id: message.recipientId,
+            body: message.body,
+            client_id: message.clientId,
+          })
+        );
+      }
+
+      const pendingGroup = await getPendingGroupMessages();
+      for (const message of pendingGroup) {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        socket.send(
+          JSON.stringify({
+            type: "group_message",
+            group_id: message.groupId,
             body: message.body,
             client_id: message.clientId,
           })
@@ -91,6 +109,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           if (pongTimeoutTimer.current) clearTimeout(pongTimeoutTimer.current);
         } else if (data.type === "message") {
           messageListeners.current.forEach((listener) => listener(data));
+        } else if (data.type === "group_message") {
+          groupMessageListeners.current.forEach((listener) => listener(data));
         } else if (data.type === "presence") {
           presenceListeners.current.forEach((listener) =>
             listener(data.user_id, data.status, data.last_seen)
@@ -138,6 +158,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     // as 'pending' — it will be sent by flushOutbox() on the next reconnect.
   };
 
+  const sendGroupMessage = (groupId: number, body: string, clientId: string) => {
+    const socket = wsRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({ type: "group_message", group_id: groupId, body, client_id: clientId })
+      );
+    }
+  };
+
   const setPresence = (status: "online" | "away") => {
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -150,6 +179,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     return () => messageListeners.current.delete(listener);
   };
 
+  const onGroupMessage = (listener: GroupMessageListener) => {
+    groupMessageListeners.current.add(listener);
+    return () => groupMessageListeners.current.delete(listener);
+  };
+
   const onPresence = (listener: PresenceListener) => {
     presenceListeners.current.add(listener);
     return () => presenceListeners.current.delete(listener);
@@ -157,7 +191,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <SocketContext.Provider
-      value={{ sendMessage, setPresence, onMessage, onPresence, isConnected }}
+      value={{
+        sendMessage,
+        sendGroupMessage,
+        setPresence,
+        onMessage,
+        onGroupMessage,
+        onPresence,
+        isConnected,
+      }}
     >
       {children}
     </SocketContext.Provider>

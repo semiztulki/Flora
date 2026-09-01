@@ -25,10 +25,24 @@ The API/WebSocket base URLs come from `app.json` -> `expo.extra.apiUrl` /
 works for the iOS simulator; for a physical device or Android emulator, set
 them to your machine's LAN IP, e.g. `http://192.168.1.20:8000`.
 
+## Offline-first chat
+
+Chat history is read from a local SQLite database (`src/db`), not fetched
+live on every screen open — messages, sender/timestamps and read state all
+live on the device, so a chat opens instantly even with no signal. On
+connect, the client only asks the server for messages newer than what it has
+cached (`since_id` delta sync) and merges them in. Sending is optimistic: a
+message is written locally as `pending` and shown immediately, then sent over
+the WebSocket; if the socket is down, it just stays `pending` and gets
+flushed automatically once `SocketContext` reconnects (exponential backoff +
+a ping/pong heartbeat to detect connections that die silently on a weak
+signal).
+
 ## Structure
 
 - `src/api` — REST client (axios) + secure token storage
+- `src/db` — local SQLite message/group-message log and read state (offline-first source of truth for chat UI)
 - `src/context/AuthContext` — login/register/logout, session restore
-- `src/context/SocketContext` — WebSocket connection, message/presence events
-- `src/screens` — Login, Register, Contacts (list + add), Chat
+- `src/context/SocketContext` — WebSocket connection with reconnect/heartbeat, message/group-message/presence events, outbox flush
+- `src/screens` — Login, Register, Contacts (contacts + groups list, unread badges), Chat, CreateGroup, GroupChat
 - `src/navigation` — auth-gated stack navigator

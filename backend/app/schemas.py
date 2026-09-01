@@ -61,3 +61,39 @@ class MessageOut(BaseModel):
 class MessageSend(BaseModel):
     recipient_id: int
     body: str = Field(min_length=1, max_length=4000)
+
+
+class GroupMemberOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str
+
+
+class GroupOut(BaseModel):
+    id: int
+    name: str
+    owner_id: int
+    created_at: datetime
+    members: list[GroupMemberOut]
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    member_usernames: list[str] = Field(default_factory=list)
+
+
+class GroupAddMember(BaseModel):
+    username: str
+
+
+class GroupMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    group_id: int
+    sender_id: int
+    body: str
+    client_id: str | None = None
+    created_at: datetime
