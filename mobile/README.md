@@ -106,8 +106,8 @@ it works offline too.
 ## Presence
 
 The status dot in Contacts: green = online, yellow = away, orange = "не
-беспокоить", red = offline, purple = invisible — purple only ever shows for
-your own status, or for a contact you've specifically granted
+беспокоить", red = offline, gray = invisible (classic ICQ) — gray only ever
+shows for your own status, or for a contact you've specifically granted
 `visible_when_invisible` (long-press their row → "Показывать ей(ему) мой
 инвиз"); everyone else sees you as plain offline while invisible, both live
 over WebSocket and on a fresh contacts-list fetch.

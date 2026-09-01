@@ -32,10 +32,10 @@ const statusColor: Record<User["status"], string> = {
   online: "#2f9e44",
   away: "#fab005",
   dnd: "#f76707",
-  // Only ever shown to you (your own status dot) or to a contact you've
-  // specifically let see through invisible mode — everyone else is shown
-  // "offline" instead, never this color.
-  invisible: "#7048e8",
+  // Classic ICQ gray. Only ever shown to you (your own status dot) or to a
+  // contact you've specifically let see through invisible mode — everyone
+  // else is shown "offline" (red) instead, never this color.
+  invisible: "#868e96",
   offline: "#e03131",
 };
 
