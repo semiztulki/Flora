@@ -48,6 +48,41 @@ columns — existing data, and columns it doesn't recognize, are left alone.
 Good enough for this project's SQLite dev DB; a real migration tool would
 still be the right call before ever pointing this at Postgres in production.
 
+## Profile: an address card, not a social profile
+
+Past the UIN and nickname (`display_name`), every other profile field is
+optional and deliberately scoped to "facts a paper contact card would
+carry": first/last name, pronouns, birthday (year optionally hidden), city,
+country, a comma-separated `languages` list (rendered as chips client-side),
+occupation, `interests`, a ~500-char `about`, one `website` link, and a
+single `avatar` (no galleries/stories). `email`/`phone` are private by
+default — each has its own `*_public` flag to opt into showing on the
+profile someone else sees (`GET /profiles/{uin}`). Deliberately absent:
+follower counts, registration date, mutual friends, activity stats, badges —
+anything that turns an address card into a social platform.
+
+`PATCH /auth/me` is patch-style over all of these
+(`ProfileUpdate`/`_CLEARABLE_STRING_FIELDS` in `app/routers/auth.py`): a
+field that's **omitted** (or sent `null`) is left untouched; a string field
+sent as `""` is explicitly cleared to `NULL`. This lets a client clear one
+field without having to resend the whole profile. `PATCH /auth/me/avatar`
+— `{attachment_id}` (upload via `POST /attachments` first) — sets or clears
+(`null`) the avatar; anyone signed in can view someone else's avatar file
+regardless of DM/group history, since it's shown on contact lists and
+profile cards, not just in a specific conversation.
+
+Each contact also gets a **private local nickname**
+(`PATCH /contacts/{contact_id}/nickname` — `{local_nickname}`) — "Лена —
+реставратор" — visible only to the owner, never to the contact themselves
+or anyone else; it lives on the `Contact` row (not on-device), so it
+survives a reinstall.
+
+`GET /profiles/{uin}` returns someone else's profile the way you're
+allowed to see it: `status`/`status_note` already masked by their
+invisible-mode rules (see Presence below), `email`/`phone` only present if
+they opted in, `local_nickname` is *your own* label for them, and
+`is_contact` says whether you already have them.
+
 ## API
 
 - `POST /auth/register` — `{display_name, password}` -> `{access_token, user}`
@@ -55,7 +90,9 @@ still be the right call before ever pointing this at Postgres in production.
   it's also always visible on your own profile screen)
 - `POST /auth/login` — `{uin, password}` -> `{access_token, user}`
 - `GET /auth/me` — current user, used to restore a session from a stored token
-- `PATCH /auth/me` — `{display_name?, bio?}` update your own profile
+- `PATCH /auth/me` — patch-style profile update, see "Profile" above
+- `PATCH /auth/me/avatar` — `{attachment_id: int | null}` set/clear your avatar
+- `GET /profiles/{uin}` — someone else's profile, masked per their privacy/invisible settings
 - `GET /contacts` — list authorized (accepted) contacts
 - `POST /contacts` — `{uin}` send a contact request; if they already sent
   you one, both sides auto-accept instead of leaving two pending requests
@@ -76,6 +113,8 @@ still be the right call before ever pointing this at Postgres in production.
 - `GET /attachments/{id}` — attachment metadata; `GET /attachments/{id}/file`
   — the actual bytes. Both require the caller to be the uploader or a
   participant in a message that references the attachment.
+- `PATCH /contacts/{contact_id}/nickname` — `{local_nickname: str | null}` your
+  own private label for this contact, see "Profile" above
 - `PATCH /contacts/{contact_id}/visibility` — `{visible_when_invisible: bool}`
   grants/revokes one contact's ability to see your real status while you're
   invisible, instead of "offline" like everyone else
@@ -87,30 +126,64 @@ still be the right call before ever pointing this at Postgres in production.
 - `POST /admin/users/{user_id}/uin` — `{uin}` admin only, hands a user a
   specific number (409 if it's already someone else's) — the escape hatch
   for granting one of the reserved "pretty" numbers deliberately
-- `WS /ws?token=<access_token>&status=online` — real-time channel. `status`
-  (optional, defaults to `online`) sets your presence for this connection —
-  pass `invisible` or `dnd` to avoid a flash of "online" before you can
-  update it. JSON frames:
+- `WS /ws?token=<access_token>&status=available&invisible=false` — real-time
+  channel. `status`/`invisible` (both optional, default `available`/`false`)
+  set your presence for this connection's first activation — passed as query
+  params rather than always connecting as visible-available-then-flipping,
+  so reconnecting while dnd/invisible doesn't flash the wrong thing to
+  watchers for the split second before the client can update it. JSON frames:
   - send `{"type": "message", "recipient_id": 2, "body": "hi", "attachment_id": 5, "client_id": "<uuid>"}` (`body` may be empty when `attachment_id` is set)
   - send `{"type": "group_message", "group_id": 1, "body": "hi", "attachment_id": 5, "client_id": "<uuid>"}`
-  - send `{"type": "presence", "status": "online" | "away" | "dnd" | "invisible"}`
+  - send `{"type": "presence", ...}` — every field below is independent and
+    optional; only the keys present in the frame get changed, so a client can
+    e.g. toggle just `invisible` without resending the current mood:
+    - `status`: one of `available | free_for_chat | away | not_available | occupied | dnd`
+    - `invisible`: bool
+    - `note`: short ephemeral text (max 120 chars) attached to the *current*
+      status ("за кофе, минут на десять") — distinct from the permanent
+      `about` profile field; send `""` to clear it
+    - `duration_minutes`: int, optional self-expiry ("for: 1 hour") — a
+      background sweep (`run_status_expiry_loop` in `app/routers/ws.py`,
+      checks every 60s) reverts to `available` with `note`/expiry cleared
+      once it passes; omit or send `0`/`null` for no expiry
   - send `{"type": "typing", "recipient_id": 2}` or `{"type": "typing", "group_id": 1}` — ephemeral, not persisted
   - send `{"type": "ping"}` -> receive `{"type": "pong"}` (heartbeat)
   - receive `{"type": "message" | "group_message" | "presence" | "typing", ...}`
+    — a `"presence"` frame carries `{user_id, status, note, last_seen}`
 
 `client_id` is a client-generated UUID used to dedupe retried sends (e.g. after
 a dropped connection) — resending the same `client_id` just re-confirms the
 already-stored message instead of creating a duplicate.
 
-Presence goes `online` (or whatever `status` was requested) on first active WS
-connection, `offline` on last disconnect, and updates are pushed to anyone who
-has that user as a contact. **Invisible** means actually connected — you still
-receive messages instantly — but everyone else is told you're `offline`,
-*unless* you've explicitly granted that specific contact
+## Presence: classic-ICQ semantics, not a modern online/away/busy set
+
+`status` is one of six user-settable "moods" (`PresenceStatus` in
+`app/models.py`) — deliberately more granular than a generic tri-state:
+`available`, `free_for_chat`, `away`, `not_available` (gone — "меня
+фактически нет"), `occupied` (here but busy — "занят, но важное можно
+написать"; distinct meaning from `not_available`), `dnd`. **`offline` is
+never something a user picks** — it's what gets broadcast when there's no
+live WS connection at all, exactly like before.
+
+**Invisible is not a seventh mood — it's a separate `User.invisible`
+boolean layered on top of whichever mood is active.** You still receive
+messages instantly while invisible; everyone else is just told you're
+`offline`, *unless* you've explicitly granted that specific contact
 `visible_when_invisible` (per-contact, one-directional — them seeing your
-true status doesn't grant you seeing theirs). This masking is applied both to
-the live `presence` WS push and to the `status` field in `GET /contacts`, so
-there's no way to catch the real status through a REST refresh either.
+true status doesn't grant you seeing theirs). This masking is applied both
+to the live `presence` WS push and to the `status`/`status_note` fields in
+`GET /contacts` and `GET /profiles/{uin}`, so there's no way to catch the
+real status through a REST refresh either.
+
+`status_note` ("Add a note", not "status message") is a short (≤120 char)
+note attached to the *current* status — "до 16:00 на созвонах" — cleared or
+replaced on the next status change, and masked the same way as `status`
+when invisible. It's deliberately separate from the permanent `about`
+profile field: one is who you are, the other is what you're doing right
+now. An optional `duration_minutes` self-expires a status back to
+`available` (note/expiry cleared) via a periodic sweep, since people
+reliably forget to switch back by hand — especially on mobile.
+
 Blocking someone severs any contact relationship in both directions and
 silently rejects direct messages between the two of you.
 

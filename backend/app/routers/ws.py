@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import or_, select
@@ -21,11 +23,17 @@ from app.models import (
 )
 from app.websocket_manager import manager
 
+logger = logging.getLogger(__name__)
+
+STATUS_EXPIRY_CHECK_INTERVAL_SECONDS = 60
+
 _SETTABLE_STATUSES = {
-    PresenceStatus.online.value,
+    PresenceStatus.available.value,
+    PresenceStatus.free_for_chat.value,
     PresenceStatus.away.value,
+    PresenceStatus.not_available.value,
+    PresenceStatus.occupied.value,
     PresenceStatus.dnd.value,
-    PresenceStatus.invisible.value,
 }
 
 router = APIRouter(tags=["ws"])
@@ -103,18 +111,50 @@ async def _broadcast_presence(db: AsyncSession, user: User) -> None:
     # "offline" — the whole point of the mode. Contacts the user has
     # explicitly allowed (Contact.visible_when_invisible) are told the truth;
     # everyone else, and the user's own other clients, always see the truth.
+    # invisible is a flag layered on top of `status` now, not a status value
+    # itself, so masking checks the flag rather than the mood.
     for watcher_id, sees_through_invisible in await _watchers_of(db, user.id):
-        if user.status == PresenceStatus.invisible and not sees_through_invisible:
-            visible_status = PresenceStatus.offline.value
-        else:
-            visible_status = user.status.value
+        masked = user.invisible and not sees_through_invisible
         payload = {
             "type": "presence",
             "user_id": user.id,
-            "status": visible_status,
+            "status": PresenceStatus.offline.value if masked else user.status.value,
+            "note": None if masked else user.status_note,
             "last_seen": user.last_seen.isoformat(),
         }
         await manager.send_to_user(watcher_id, payload)
+
+
+async def _revert_expired_statuses() -> None:
+    """"For: 1 hour / until 18:00 / ..." — once that time passes, snap back to
+    Available with the note and expiry cleared, same as if the user had done
+    it themselves. Mobile users forget to switch back; this is the fix."""
+    async with async_session() as db:
+        result = await db.execute(
+            select(User).where(
+                User.status_expires_at.isnot(None),
+                User.status_expires_at <= datetime.now(timezone.utc),
+            )
+        )
+        expired_users = result.scalars().all()
+        for user in expired_users:
+            user.status = PresenceStatus.available
+            user.status_note = None
+            user.status_expires_at = None
+        if expired_users:
+            await db.commit()
+        for user in expired_users:
+            await db.refresh(user)
+            await _broadcast_presence(db, user)
+
+
+async def run_status_expiry_loop() -> None:
+    while True:
+        try:
+            await _revert_expired_statuses()
+        except Exception:
+            logger.exception("Status expiry sweep failed")
+        await asyncio.sleep(STATUS_EXPIRY_CHECK_INTERVAL_SECONDS)
 
 
 async def _replay_offline_messages(db: AsyncSession, user_id: int) -> None:
@@ -178,13 +218,17 @@ async def _replay_offline_group_messages(db: AsyncSession, user_id: int) -> None
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "online"):
+async def websocket_endpoint(
+    websocket: WebSocket, token: str, status: str = "available", invisible: bool = False
+):
     user_id = decode_access_token(token)
     if user_id is None:
         await websocket.close(code=4401)
         return
 
-    initial_status = PresenceStatus(status) if status in _SETTABLE_STATUSES else PresenceStatus.online
+    initial_status = (
+        PresenceStatus(status) if status in _SETTABLE_STATUSES else PresenceStatus.available
+    )
 
     async with async_session() as db:
         user = await _get_user(db, user_id)
@@ -207,10 +251,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
 
         is_first_connection = await manager.connect(user_id, websocket)
         if is_first_connection:
-            # Passed as a query param (rather than always defaulting to online then
-            # flipping) so reconnecting while invisible/dnd doesn't flash "online"
-            # to watchers for the split second before the client can update it.
+            # Passed as query params (rather than always defaulting to
+            # available/visible then flipping) so reconnecting while
+            # invisible/dnd doesn't flash the wrong thing to watchers for the
+            # split second before the client can update it.
             user.status = initial_status
+            user.invisible = invisible
             user.last_seen = datetime.now(timezone.utc)
             await db.commit()
             await db.refresh(user)
@@ -401,12 +447,37 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                     await db.commit()
 
                 elif msg_type == "presence":
-                    new_status = data.get("status")
-                    if new_status not in _SETTABLE_STATUSES:
-                        await websocket.send_json({"type": "error", "detail": "Invalid status"})
-                        continue
+                    # Every field is independent and optional: only the keys
+                    # actually present in the frame get changed, so a client
+                    # can e.g. toggle just `invisible` without resending the
+                    # current mood, or clear just the note.
+                    if "status" in data:
+                        new_status = data.get("status")
+                        if new_status not in _SETTABLE_STATUSES:
+                            await websocket.send_json({"type": "error", "detail": "Invalid status"})
+                            continue
+
                     user = await _get_user(db, user_id)
-                    user.status = PresenceStatus(new_status)
+
+                    if "status" in data:
+                        user.status = PresenceStatus(data["status"])
+                    if "invisible" in data:
+                        user.invisible = bool(data["invisible"])
+                    if "note" in data:
+                        note = (data.get("note") or "").strip()[:120]
+                        user.status_note = note or None
+                    if "duration_minutes" in data:
+                        minutes = data.get("duration_minutes")
+                        try:
+                            minutes = int(minutes) if minutes is not None else None
+                        except (TypeError, ValueError):
+                            minutes = None
+                        user.status_expires_at = (
+                            datetime.now(timezone.utc) + timedelta(minutes=minutes)
+                            if minutes and minutes > 0
+                            else None
+                        )
+
                     user.last_seen = datetime.now(timezone.utc)
                     await db.commit()
                     await db.refresh(user)

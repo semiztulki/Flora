@@ -10,6 +10,7 @@ from app.schemas import (
     BlockOut,
     ContactAdd,
     ContactAddResult,
+    ContactNicknameUpdate,
     ContactOut,
     ContactRequestOut,
     ContactVisibilityUpdate,
@@ -42,7 +43,12 @@ async def list_contacts(
     # *their* invisible mode — used to decide what status to actually show.
     ReverseContact = aliased(Contact)
     result = await db.execute(
-        select(User, Contact.visible_when_invisible, ReverseContact.visible_when_invisible)
+        select(
+            User,
+            Contact.visible_when_invisible,
+            Contact.local_nickname,
+            ReverseContact.visible_when_invisible,
+        )
         .join(Contact, Contact.contact_id == User.id)
         .outerjoin(
             ReverseContact,
@@ -51,16 +57,50 @@ async def list_contacts(
         .where(Contact.owner_id == current_user.id, Contact.status == ContactStatus.accepted)
     )
     contacts = []
-    for contact_user, i_show_them, they_show_me in result.all():
-        visible_status = contact_user.status
-        if contact_user.status == PresenceStatus.invisible and not they_show_me:
-            visible_status = PresenceStatus.offline
+    for contact_user, i_show_them, local_nickname, they_show_me in result.all():
+        # invisible is a separate flag layered on top of `status` now, not a
+        # status value itself — masking follows the flag, not the mood.
+        masked = contact_user.invisible and not they_show_me
         contacts.append(
             ContactOut.model_validate(contact_user).model_copy(
-                update={"status": visible_status, "visible_when_invisible": bool(i_show_them)}
+                update={
+                    "status": PresenceStatus.offline if masked else contact_user.status,
+                    "status_note": None if masked else contact_user.status_note,
+                    "visible_when_invisible": bool(i_show_them),
+                    "local_nickname": local_nickname,
+                }
             )
         )
     return contacts
+
+
+@router.patch("/{contact_id}/nickname", response_model=ContactOut)
+async def set_contact_nickname(
+    contact_id: int,
+    payload: ContactNicknameUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Your own private label for a contact ("Лена — реставратор") — visible
+    only to you, never to them or anyone else."""
+    result = await db.execute(
+        select(Contact).where(
+            Contact.owner_id == current_user.id,
+            Contact.contact_id == contact_id,
+            Contact.status == ContactStatus.accepted,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not a contact")
+
+    row.local_nickname = payload.local_nickname or None
+    await db.commit()
+
+    target = await db.get(User, contact_id)
+    return ContactOut.model_validate(target).model_copy(
+        update={"local_nickname": row.local_nickname}
+    )
 
 
 @router.patch("/{contact_id}/visibility", response_model=ContactOut)

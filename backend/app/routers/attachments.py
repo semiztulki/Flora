@@ -89,6 +89,14 @@ async def _can_access(db: AsyncSession, attachment: Attachment, user_id: int) ->
     if attachment.uploader_id == user_id:
         return True
 
+    # Anyone signed in can view an avatar — it's shown on contacts lists and
+    # profile cards, not just to message participants like a photo attachment.
+    avatar_owner = await db.execute(
+        select(User.id).where(User.avatar_attachment_id == attachment.id)
+    )
+    if avatar_owner.first() is not None:
+        return True
+
     dm = await db.execute(
         select(Message.id).where(
             Message.attachment_id == attachment.id,

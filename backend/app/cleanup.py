@@ -7,7 +7,7 @@ from sqlalchemy import select, update
 
 from app.config import settings
 from app.database import async_session
-from app.models import Attachment, GroupMessage, Message
+from app.models import Attachment, GroupMessage, Message, User
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,15 @@ async def cleanup_old_attachments() -> int:
     upload_dir = Path(settings.upload_dir)
 
     async with async_session() as db:
+        avatar_ids = await db.execute(
+            select(User.avatar_attachment_id).where(User.avatar_attachment_id.isnot(None))
+        )
+        avatar_attachment_ids = {row[0] for row in avatar_ids.all()}
+
         result = await db.execute(select(Attachment).where(Attachment.created_at < cutoff))
-        expired = result.scalars().all()
+        # Avatars are a standing profile field, not chat ephemera — they
+        # don't expire just because they're old.
+        expired = [a for a in result.scalars().all() if a.id not in avatar_attachment_ids]
 
         for attachment in expired:
             await db.execute(

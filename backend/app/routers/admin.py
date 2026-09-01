@@ -26,7 +26,6 @@ async def _admin_user_out(db: AsyncSession, target: User) -> AdminUserOut:
         id=target.id,
         uin=target.uin,
         display_name=target.display_name,
-        bio=target.bio,
         status=target.status,
         last_seen=target.last_seen,
         is_admin=target.is_admin,

@@ -1,7 +1,7 @@
 import enum
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -12,12 +12,22 @@ def utcnow() -> datetime:
 
 
 class PresenceStatus(str, enum.Enum):
-    online = "online"
+    """The six user-settable "moods", classic-ICQ-style — deliberately more
+    granular than a generic online/away/busy: N/A ("not_available") and
+    Occupied meant different things (gone vs. here-but-busy), and Free for
+    Chat signaled active openness rather than just "not away". `offline`
+    is never something a user picks — it's what gets broadcast when there's
+    no live connection at all, same as before. Invisibility is now a
+    separate dimension (User.invisible), layered on top of whichever mood
+    is actually selected, instead of being its own mood — see
+    _broadcast_presence() in routers/ws.py for the masking."""
+
+    available = "available"
+    free_for_chat = "free_for_chat"
     away = "away"
+    not_available = "not_available"
+    occupied = "occupied"
     dnd = "dnd"
-    # Actually connected, but broadcast to everyone else as "offline" — see
-    # _broadcast_presence() in routers/ws.py for the masking.
-    invisible = "invisible"
     offline = "offline"
 
 
@@ -39,17 +49,73 @@ class User(Base):
     # repeatedly; an admin can still hand one out via
     # POST /admin/users/{user_id}/uin.
     uin: Mapped[int] = mapped_column(unique=True, index=True)
+    # The nickname — main displayed name, not unique. Historically called
+    # display_name in this codebase; "Nickname" in the UI.
     display_name: Mapped[str] = mapped_column(String(64))
     hashed_password: Mapped[str] = mapped_column(String(255))
-    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # --- Address-card profile fields (all optional past the nickname) ---
+    # An address-book card, not a "personal brand showcase": no follower
+    # counts, no activity stats, no badges. Just the same kind of facts a
+    # paper contact card would carry.
+    # use_alter breaks the users<->attachments circular FK dependency
+    # (attachments.uploader_id -> users.id) for DDL emission — SQLAlchemy
+    # otherwise can't decide which table to CREATE first.
+    avatar_attachment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attachments.id", use_alter=True, name="fk_users_avatar_attachment_id"),
+        nullable=True,
+    )
+    first_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pronouns: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    birthday_show_year: Mapped[bool] = mapped_column(Boolean, default=True)
+    city: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Comma-separated short tags — "English, French, Russian" — rendered as
+    # chips client-side rather than normalized into their own tables; this
+    # is an address card, not a searchable directory.
+    languages: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    occupation: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    interests: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    about: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Private by default — only shown on the profile someone else sees if
+    # the matching *_public flag is set.
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    email_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    phone_public: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # --- Presence: mood + visibility + an optional note, kept separate ---
     status: Mapped[PresenceStatus] = mapped_column(
         Enum(PresenceStatus), default=PresenceStatus.offline
     )
+    # Connected but broadcast to everyone else as "offline", except
+    # contacts explicitly granted Contact.visible_when_invisible — layered
+    # on top of `status` rather than being a status value itself.
+    invisible: Mapped[bool] = mapped_column(Boolean, default=False)
+    # A short note attached to the *current* status ("на созвонах до 16:00"),
+    # not a persistent bio — cleared/replaced on the next status change.
+    status_note: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Optional self-expiry ("for: 1 hour" / "until 18:00") — a background
+    # sweep (see cleanup.py) reverts to `available` once this passes, since
+    # people reliably forget to switch their status back by hand.
+    status_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Kept in sync with Settings.admin_uin_set on every authenticated
     # request — see get_current_user() in app/auth.py.
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    # selectin so response serialization (UserOut.avatar, ContactOut.avatar)
+    # never triggers a lazy load outside the request's session/greenlet context.
+    avatar: Mapped["Attachment | None"] = relationship(
+        foreign_keys=[avatar_attachment_id], lazy="selectin"
+    )
 
 
 class ReservedUin(Base):
@@ -79,6 +145,11 @@ class Contact(Base):
     # Lives on the *owner's* row about this contact: when owner_id is
     # invisible, does contact_id get told the truth instead of "offline"?
     visible_when_invisible: Mapped[bool] = mapped_column(Boolean, default=False)
+    # A private label only the owner ever sees ("Лена — реставратор") —
+    # never exposed to the contact themselves or anyone else. Lives here
+    # (not on-device only) so it survives a reinstall/new device, since
+    # this row is already scoped to the owner everywhere it's read.
+    local_nickname: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id])
@@ -157,7 +228,7 @@ class Attachment(Base):
     height: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
-    uploader: Mapped["User"] = relationship()
+    uploader: Mapped["User"] = relationship(foreign_keys=[uploader_id])
 
 
 class Message(Base):

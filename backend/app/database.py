@@ -55,10 +55,32 @@ def _add_missing_columns(sync_conn) -> None:
             )
 
 
+def _migrate_legacy_presence_values(sync_conn) -> None:
+    """One-time data fixup for the PresenceStatus rename (online -> available,
+    invisible folded into the new User.invisible boolean instead of being a
+    status value). Only touches rows still carrying a pre-rename string —
+    a no-op after the first run. Safe because `status` is a plain VARCHAR
+    with no CHECK constraint (SQLAlchemy's Enum type doesn't add one for
+    SQLite by default), so old values were never rejected, just stale."""
+    inspector = sqlalchemy.inspect(sync_conn)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("users")}
+    if "invisible" not in columns:
+        return  # ran before _add_missing_columns somehow — bail, next startup catches it
+    sync_conn.execute(
+        sqlalchemy.text(
+            "UPDATE users SET invisible = 1, status = 'available' WHERE status = 'invisible'"
+        )
+    )
+    sync_conn.execute(sqlalchemy.text("UPDATE users SET status = 'available' WHERE status = 'online'"))
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
+        await conn.run_sync(_migrate_legacy_presence_values)
 
 
 async def get_db():
