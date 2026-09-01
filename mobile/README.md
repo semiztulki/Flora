@@ -38,11 +38,21 @@ flushed automatically once `SocketContext` reconnects (exponential backoff +
 a ping/pong heartbeat to detect connections that die silently on a weak
 signal).
 
+## Notification sound
+
+`assets/sounds/incoming.mp3` plays whenever a DM or group message arrives
+that isn't your own echo and you're not set to "не беспокоить" —
+`SocketContext` triggers it via `src/utils/sound.ts` (expo-av). This only
+fires while the app is in the foreground; there's no background push
+infrastructure behind it yet, so it won't play with the app closed or
+backgrounded. To swap the sound, replace that file (keep the same name) or
+change the path in `src/utils/sound.ts`.
+
 ## Structure
 
 - `src/api` — REST client (axios) + secure token storage
 - `src/db` — local SQLite message/group-message log and read state (offline-first source of truth for chat UI)
-- `src/context/AuthContext` — login/register/logout, session restore
-- `src/context/SocketContext` — WebSocket connection with reconnect/heartbeat, message/group-message/presence events, outbox flush
-- `src/screens` — Login, Register, Contacts (contacts + groups list, unread badges), Chat, CreateGroup, GroupChat
+- `src/context/AuthContext` — login/register/logout, session restore, profile updates
+- `src/context/SocketContext` — WebSocket connection with reconnect/heartbeat, message/group-message/presence/typing events, outbox flush, notification sound
+- `src/screens` — Login, Register, Contacts (contacts + groups + requests + blocked, unread badges, status picker), Chat, GroupChat, CreateGroup, Profile
 - `src/navigation` — auth-gated stack navigator

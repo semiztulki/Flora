@@ -5,6 +5,7 @@ import { getPendingGroupMessages } from "../db/groupMessages";
 import { WS_URL } from "../config";
 import { useAuth } from "./AuthContext";
 import { GroupMessage, Message, PresenceStatus, ServerEvent, SettableStatus } from "../types";
+import { playIncomingSound } from "../utils/sound";
 
 type MessageListener = (message: Message) => void;
 type GroupMessageListener = (message: GroupMessage) => void;
@@ -31,8 +32,14 @@ const MAX_BACKOFF_MS = 30_000;
 const BASE_BACKOFF_MS = 1_000;
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
+  // Refs (not state) so the long-lived connect() closure below always sees the
+  // latest values without needing to reconnect the socket when they change.
+  const currentUserId = useRef<number | undefined>(user?.id);
+  useEffect(() => {
+    currentUserId.current = user?.id;
+  }, [user?.id]);
   const messageListeners = useRef(new Set<MessageListener>());
   const groupMessageListeners = useRef(new Set<GroupMessageListener>());
   const presenceListeners = useRef(new Set<PresenceListener>());
@@ -115,8 +122,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         if (data.type === "pong") {
           if (pongTimeoutTimer.current) clearTimeout(pongTimeoutTimer.current);
         } else if (data.type === "message") {
+          if (data.sender_id !== currentUserId.current && desiredStatus.current !== "dnd") {
+            playIncomingSound();
+          }
           messageListeners.current.forEach((listener) => listener(data));
         } else if (data.type === "group_message") {
+          if (data.sender_id !== currentUserId.current && desiredStatus.current !== "dnd") {
+            playIncomingSound();
+          }
           groupMessageListeners.current.forEach((listener) => listener(data));
         } else if (data.type === "presence") {
           presenceListeners.current.forEach((listener) =>
