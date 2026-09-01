@@ -54,6 +54,9 @@ class Contact(Base):
     # 'pending' until the other side accepts, then flipped to 'accepted' on both
     # the requester's row and a mirrored reverse row — classic ICQ authorization.
     status: Mapped[ContactStatus] = mapped_column(Enum(ContactStatus), default=ContactStatus.pending)
+    # Lives on the *owner's* row about this contact: when owner_id is
+    # invisible, does contact_id get told the truth instead of "offline"?
+    visible_when_invisible: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id])

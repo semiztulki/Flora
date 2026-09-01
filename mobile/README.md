@@ -103,6 +103,15 @@ case-folds ASCII and a Russian-language app needs "привет" to match
 "Привет". Search only ever looks at what's already synced to the device, so
 it works offline too.
 
+## Presence
+
+The status dot in Contacts: green = online, yellow = away, orange = "не
+беспокоить", red = offline, purple = invisible — purple only ever shows for
+your own status, or for a contact you've specifically granted
+`visible_when_invisible` (long-press their row → "Показывать ей(ему) мой
+инвиз"); everyone else sees you as plain offline while invisible, both live
+over WebSocket and on a fresh contacts-list fetch.
+
 ## Structure
 
 - `src/api` — REST client (axios) + secure token storage

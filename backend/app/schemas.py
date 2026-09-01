@@ -52,6 +52,14 @@ class ContactOut(BaseModel):
     bio: str | None = None
     status: PresenceStatus
     last_seen: datetime
+    # Whether *you've* chosen to let this contact see through your invisible
+    # mode. Only meaningful on your own contact list — always False on any
+    # other response (e.g. ContactAddResult), since it's your call, not theirs.
+    visible_when_invisible: bool = False
+
+
+class ContactVisibilityUpdate(BaseModel):
+    visible_when_invisible: bool
 
 
 class ContactAddResult(BaseModel):

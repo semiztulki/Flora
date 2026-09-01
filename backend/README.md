@@ -50,6 +50,9 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost/flora
 - `GET /attachments/{id}` — attachment metadata; `GET /attachments/{id}/file`
   — the actual bytes. Both require the caller to be the uploader or a
   participant in a message that references the attachment.
+- `PATCH /contacts/{contact_id}/visibility` — `{visible_when_invisible: bool}`
+  grants/revokes one contact's ability to see your real status while you're
+  invisible, instead of "offline" like everyone else
 - `GET /admin/users/{username}` — user info + active ban, if any (admin only)
 - `POST /admin/users/{user_id}/ban` — `{duration_minutes, reason}`
   (`duration_minutes: null` = permanent) — admin only, force-disconnects the
@@ -73,7 +76,12 @@ already-stored message instead of creating a duplicate.
 Presence goes `online` (or whatever `status` was requested) on first active WS
 connection, `offline` on last disconnect, and updates are pushed to anyone who
 has that user as a contact. **Invisible** means actually connected — you still
-receive messages instantly — but everyone else is told you're `offline`.
+receive messages instantly — but everyone else is told you're `offline`,
+*unless* you've explicitly granted that specific contact
+`visible_when_invisible` (per-contact, one-directional — them seeing your
+true status doesn't grant you seeing theirs). This masking is applied both to
+the live `presence` WS push and to the `status` field in `GET /contacts`, so
+there's no way to catch the real status through a REST refresh either.
 Blocking someone severs any contact relationship in both directions and
 silently rejects direct messages between the two of you.
 

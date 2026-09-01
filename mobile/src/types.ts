@@ -11,6 +11,9 @@ export interface User {
   status: PresenceStatus;
   last_seen: string;
   is_admin: boolean;
+  // Only populated on rows from GET /contacts: whether *you've* let this
+  // contact see through your invisible mode.
+  visible_when_invisible?: boolean;
 }
 
 export interface BanInfo {

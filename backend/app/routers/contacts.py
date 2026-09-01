@@ -1,16 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import Block, Contact, ContactStatus, User
+from app.models import Block, Contact, ContactStatus, PresenceStatus, User
 from app.schemas import (
     BlockOut,
     ContactAdd,
     ContactAddResult,
     ContactOut,
     ContactRequestOut,
+    ContactVisibilityUpdate,
 )
 from app.websocket_manager import manager
 
@@ -33,12 +35,61 @@ async def _is_blocked_either_way(db: AsyncSession, user_a: int, user_b: int) -> 
 async def list_contacts(
     current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
+    # Two different flags on two different rows here: Contact.visible_when_invisible
+    # (my row about them) says whether *I* let *them* see through my invisible
+    # mode — surfaced so the client can render the toggle. ReverseContact's
+    # flag (their row about me) says whether *they* let *me* see through
+    # *their* invisible mode — used to decide what status to actually show.
+    ReverseContact = aliased(Contact)
     result = await db.execute(
-        select(User)
+        select(User, Contact.visible_when_invisible, ReverseContact.visible_when_invisible)
         .join(Contact, Contact.contact_id == User.id)
+        .outerjoin(
+            ReverseContact,
+            (ReverseContact.owner_id == User.id) & (ReverseContact.contact_id == current_user.id),
+        )
         .where(Contact.owner_id == current_user.id, Contact.status == ContactStatus.accepted)
     )
-    return result.scalars().all()
+    contacts = []
+    for contact_user, i_show_them, they_show_me in result.all():
+        visible_status = contact_user.status
+        if contact_user.status == PresenceStatus.invisible and not they_show_me:
+            visible_status = PresenceStatus.offline
+        contacts.append(
+            ContactOut.model_validate(contact_user).model_copy(
+                update={"status": visible_status, "visible_when_invisible": bool(i_show_them)}
+            )
+        )
+    return contacts
+
+
+@router.patch("/{contact_id}/visibility", response_model=ContactOut)
+async def set_contact_visibility(
+    contact_id: int,
+    payload: ContactVisibilityUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Grant/revoke one contact's ability to see your real status (instead of
+    "offline") while you're in invisible mode."""
+    result = await db.execute(
+        select(Contact).where(
+            Contact.owner_id == current_user.id,
+            Contact.contact_id == contact_id,
+            Contact.status == ContactStatus.accepted,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not a contact")
+
+    row.visible_when_invisible = payload.visible_when_invisible
+    await db.commit()
+
+    target = await db.get(User, contact_id)
+    return ContactOut.model_validate(target).model_copy(
+        update={"visible_when_invisible": row.visible_when_invisible}
+    )
 
 
 @router.get("/requests", response_model=list[ContactRequestOut])

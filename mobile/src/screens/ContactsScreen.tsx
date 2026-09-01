@@ -30,10 +30,13 @@ type Row =
 
 const statusColor: Record<User["status"], string> = {
   online: "#2f9e44",
-  away: "#f08c00",
-  dnd: "#e03131",
-  invisible: "#868e96",
-  offline: "#adb5bd",
+  away: "#fab005",
+  dnd: "#f76707",
+  // Only ever shown to you (your own status dot) or to a contact you've
+  // specifically let see through invisible mode — everyone else is shown
+  // "offline" instead, never this color.
+  invisible: "#7048e8",
+  offline: "#e03131",
 };
 
 const STATUS_OPTIONS: { value: SettableStatus; label: string }[] = [
@@ -191,6 +194,18 @@ export default function ContactsScreen({ navigation }: Props) {
     ]);
   };
 
+  const handleToggleInvisibleVisibility = async (contact: User) => {
+    const updated = await contactsApi.setVisibleWhenInvisible(
+      contact.id,
+      !contact.visible_when_invisible
+    );
+    setContacts((prev) =>
+      prev.map((c) =>
+        c.id === contact.id ? { ...c, visible_when_invisible: updated.visible_when_invisible } : c
+      )
+    );
+  };
+
   // Deliberately two separate actions, not one instead of the other: you
   // block someone for any reason (an unwanted admirer, say), you report
   // someone because their behaviour needs a moderator's attention.
@@ -200,6 +215,12 @@ export default function ContactsScreen({ navigation }: Props) {
     if (contact.id === user?.id) return;
     Alert.alert(contact.display_name, undefined, [
       { text: "Отмена", style: "cancel" },
+      {
+        text: contact.visible_when_invisible
+          ? "Не показывать ей(ему) мой инвиз"
+          : "Показывать ей(ему) мой инвиз",
+        onPress: () => handleToggleInvisibleVisibility(contact),
+      },
       {
         text: "Пожаловаться",
         onPress: () =>

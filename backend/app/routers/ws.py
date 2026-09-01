@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.auth import decode_access_token
 from app.bans import get_active_ban
@@ -75,25 +76,43 @@ async def _get_user(db: AsyncSession, user_id: int) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def _watchers_of(db: AsyncSession, user_id: int) -> list[int]:
-    """Users who have `user_id` as a contact and should see their presence."""
-    result = await db.execute(select(Contact.owner_id).where(Contact.contact_id == user_id))
-    return [row[0] for row in result.all()]
+async def _watchers_of(db: AsyncSession, user_id: int) -> list[tuple[int, bool]]:
+    """Users who have `user_id` as a contact and should see their presence,
+    paired with whether `user_id` has chosen to let each of them see through
+    invisible mode instead of just seeing "offline"."""
+    # WatcherRow (owner=watcher, contact=user_id) finds the watchers.
+    # PermissionRow (owner=user_id, contact=watcher) is *user_id's own* row
+    # about that watcher — where their visible_when_invisible choice lives.
+    WatcherRow = aliased(Contact)
+    PermissionRow = aliased(Contact)
+    result = await db.execute(
+        select(WatcherRow.owner_id, PermissionRow.visible_when_invisible)
+        .select_from(WatcherRow)
+        .outerjoin(
+            PermissionRow,
+            (PermissionRow.owner_id == user_id) & (PermissionRow.contact_id == WatcherRow.owner_id),
+        )
+        .where(WatcherRow.contact_id == user_id)
+    )
+    return [(row[0], bool(row[1])) for row in result.all()]
 
 
 async def _broadcast_presence(db: AsyncSession, user: User) -> None:
-    # Invisible means actually connected, but everyone else sees "offline" —
-    # the whole point of the mode. Only the user's own client is told the truth.
-    visible_status = (
-        PresenceStatus.offline.value if user.status == PresenceStatus.invisible else user.status.value
-    )
-    payload = {
-        "type": "presence",
-        "user_id": user.id,
-        "status": visible_status,
-        "last_seen": user.last_seen.isoformat(),
-    }
-    for watcher_id in await _watchers_of(db, user.id):
+    # Invisible means actually connected, but by default everyone else sees
+    # "offline" — the whole point of the mode. Contacts the user has
+    # explicitly allowed (Contact.visible_when_invisible) are told the truth;
+    # everyone else, and the user's own other clients, always see the truth.
+    for watcher_id, sees_through_invisible in await _watchers_of(db, user.id):
+        if user.status == PresenceStatus.invisible and not sees_through_invisible:
+            visible_status = PresenceStatus.offline.value
+        else:
+            visible_status = user.status.value
+        payload = {
+            "type": "presence",
+            "user_id": user.id,
+            "status": visible_status,
+            "last_seen": user.last_seen.isoformat(),
+        }
         await manager.send_to_user(watcher_id, payload)
 
 
