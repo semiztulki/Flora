@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Flora",
+    "slug": "flora",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.flora.app"
+    },
+    "android": {
+      "package": "com.flora.app"
+    },
+    "extra": {
+      "apiUrl": "http://localhost:8000",
+      "wsUrl": "ws://localhost:8000"
+    }
+  }
+}

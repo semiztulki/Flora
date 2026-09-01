@@ -1,0 +1,32 @@
+# Flora
+
+Альтернатива ICQ: мессенджер с личными сообщениями в реальном времени и
+статусами присутствия (online/away/offline).
+
+MVP включает:
+- Регистрацию и вход
+- Список контактов (добавление по логину)
+- Личные чаты в реальном времени через WebSocket
+- Статусы присутствия
+
+## Структура репозитория
+
+- [`backend/`](backend/README.md) — FastAPI + WebSocket API (Python)
+- [`mobile/`](mobile/README.md) — клиент на React Native (Expo) + TypeScript
+
+## Быстрый старт
+
+```bash
+# Бэкенд
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --reload
+
+# Мобильный клиент (в другом терминале)
+cd mobile
+npm install
+npm start
+```
+
+Подробности — в README каждого каталога.
