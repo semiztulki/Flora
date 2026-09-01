@@ -5,6 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import decode_access_token
+from app.bans import get_active_ban
 from app.database import async_session
 from app.models import (
     Attachment,
@@ -151,6 +152,19 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
         user = await _get_user(db, user_id)
         if user is None:
             await websocket.close(code=4401)
+            return
+
+        ban = await get_active_ban(db, user_id)
+        if ban is not None:
+            await websocket.accept()
+            await websocket.send_json(
+                {
+                    "type": "banned",
+                    "reason": ban.reason,
+                    "expires_at": ban.expires_at.isoformat() if ban.expires_at else None,
+                }
+            )
+            await websocket.close(code=4403)
             return
 
         is_first_connection = await manager.connect(user_id, websocket)

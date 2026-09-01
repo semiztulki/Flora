@@ -31,5 +31,11 @@ class ConnectionManager:
         for websocket in list(self.active_connections.get(user_id, set())):
             await websocket.send_json(payload)
 
+    async def close_all(self, user_id: int, code: int = 1000) -> None:
+        """Forcibly drops every active connection for a user — used to enforce
+        a ban immediately instead of waiting for their next reconnect."""
+        for websocket in list(self.active_connections.get(user_id, set())):
+            await websocket.close(code=code)
+
 
 manager = ConnectionManager()

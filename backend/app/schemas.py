@@ -25,6 +25,7 @@ class UserOut(BaseModel):
     bio: str | None = None
     status: PresenceStatus
     last_seen: datetime
+    is_admin: bool = False
 
 
 class ProfileUpdate(BaseModel):
@@ -138,3 +139,34 @@ class GroupMessageOut(BaseModel):
     attachment: AttachmentOut | None = None
     client_id: str | None = None
     created_at: datetime
+
+
+class BanCreate(BaseModel):
+    # None = permanent ("навсегда"); otherwise how long from now, in minutes.
+    duration_minutes: int | None = Field(default=None, gt=0)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class BanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    banned_by_id: int
+    reason: str
+    created_at: datetime
+    expires_at: datetime | None
+    lifted_at: datetime | None
+
+
+class AdminUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str
+    bio: str | None = None
+    status: PresenceStatus
+    last_seen: datetime
+    is_admin: bool
+    active_ban: BanOut | None = None

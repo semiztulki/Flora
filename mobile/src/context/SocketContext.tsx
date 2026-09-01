@@ -42,7 +42,7 @@ const MAX_BACKOFF_MS = 30_000;
 const BASE_BACKOFF_MS = 1_000;
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { token, user } = useAuth();
+  const { token, user, reportBanned } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
   // Refs (not state) so the long-lived connect() closure below always sees the
   // latest values without needing to reconnect the socket when they change.
@@ -50,6 +50,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     currentUserId.current = user?.id;
   }, [user?.id]);
+  const reportBannedRef = useRef(reportBanned);
+  useEffect(() => {
+    reportBannedRef.current = reportBanned;
+  }, [reportBanned]);
   const messageListeners = useRef(new Set<MessageListener>());
   const groupMessageListeners = useRef(new Set<GroupMessageListener>());
   const presenceListeners = useRef(new Set<PresenceListener>());
@@ -151,6 +155,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           typingListeners.current.forEach((listener) =>
             listener(data.sender_id, data.recipient_id, data.group_id)
           );
+        } else if (data.type === "banned") {
+          reportBannedRef.current({ reason: data.reason, expiresAt: data.expires_at });
         }
       };
 

@@ -10,6 +10,33 @@ export interface User {
   bio: string | null;
   status: PresenceStatus;
   last_seen: string;
+  is_admin: boolean;
+}
+
+export interface BanInfo {
+  reason: string;
+  expiresAt: string | null;
+}
+
+export interface Ban {
+  id: number;
+  user_id: number;
+  banned_by_id: number;
+  reason: string;
+  created_at: string;
+  expires_at: string | null;
+  lifted_at: string | null;
+}
+
+export interface AdminUserView {
+  id: number;
+  username: string;
+  display_name: string;
+  bio: string | null;
+  status: PresenceStatus;
+  last_seen: string;
+  is_admin: boolean;
+  active_ban: Ban | null;
 }
 
 export interface AuthResponse {
@@ -83,6 +110,7 @@ export type ServerEvent =
   | ({ type: "group_message" } & GroupMessage)
   | { type: "presence"; user_id: number; status: PresenceStatus; last_seen: string }
   | { type: "typing"; sender_id: number; recipient_id?: number; group_id?: number }
+  | { type: "banned"; reason: string; expires_at: string | null }
   | { type: "error"; detail: string }
   | { type: "pong" };
 
@@ -95,4 +123,6 @@ export type RootStackParamList = {
   CreateGroup: undefined;
   Profile: undefined;
   Search: undefined;
+  Banned: undefined;
+  Admin: undefined;
 };

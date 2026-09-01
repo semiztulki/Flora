@@ -4,6 +4,8 @@ import React from "react";
 import { ActivityIndicator, View } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
+import AdminScreen from "../screens/AdminScreen";
+import BannedScreen from "../screens/BannedScreen";
 import ChatScreen from "../screens/ChatScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 import CreateGroupScreen from "../screens/CreateGroupScreen";
@@ -17,7 +19,7 @@ import { RootStackParamList } from "../types";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
-  const { token, isLoading } = useAuth();
+  const { token, isLoading, banInfo } = useAuth();
 
   if (isLoading) {
     return (
@@ -50,7 +52,14 @@ export default function RootNavigator() {
               component={SearchScreen}
               options={{ title: "Поиск" }}
             />
+            <Stack.Screen
+              name="Admin"
+              component={AdminScreen}
+              options={{ title: "Модерация" }}
+            />
           </>
+        ) : banInfo ? (
+          <Stack.Screen name="Banned" component={BannedScreen} options={{ headerShown: false }} />
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />

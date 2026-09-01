@@ -3,6 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import create_access_token, get_current_user, hash_password, verify_password
+from app.bans import ban_error_detail, get_active_ban
+from app.config import settings
 from app.database import get_db
 from app.models import User
 from app.schemas import ProfileUpdate, TokenOut, UserLogin, UserOut, UserRegister
@@ -40,6 +42,7 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
         username=payload.username,
         display_name=payload.display_name,
         hashed_password=hash_password(payload.password),
+        is_admin=payload.username in settings.admin_username_set,
     )
     db.add(user)
     await db.commit()
@@ -57,6 +60,10 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
         )
+
+    ban = await get_active_ban(db, user.id)
+    if ban is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ban_error_detail(ban))
 
     token = create_access_token(user.id)
     return TokenOut(access_token=token, user=user)

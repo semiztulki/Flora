@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.cleanup import run_cleanup_loop
 from app.database import init_db
-from app.routers import attachments, auth, contacts, groups, messages, ws
+from app.routers import admin, attachments, auth, contacts, groups, messages, ws
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.include_router(contacts.router)
 app.include_router(groups.router)
 app.include_router(messages.router)
 app.include_router(attachments.router)
+app.include_router(admin.router)
 app.include_router(ws.router)
 
 

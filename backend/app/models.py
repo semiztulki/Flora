@@ -37,6 +37,9 @@ class User(Base):
     status: Mapped[PresenceStatus] = mapped_column(
         Enum(PresenceStatus), default=PresenceStatus.offline
     )
+    # Kept in sync with Settings.admin_username_set on every authenticated
+    # request — see get_current_user() in app/auth.py.
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -68,6 +71,23 @@ class Block(Base):
 
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id])
     blocked: Mapped["User"] = relationship(foreign_keys=[blocked_id])
+
+
+class Ban(Base):
+    __tablename__ = "bans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    banned_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    reason: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # NULL means permanent ("навсегда").
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when an admin lifts the ban early; otherwise it just expires on its own.
+    lifted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+    banned_by: Mapped["User"] = relationship(foreign_keys=[banned_by_id])
 
 
 class Attachment(Base):

@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bans import ban_error_detail, get_active_ban
 from app.config import settings
 from app.database import get_db
 from app.models import User
@@ -54,4 +55,15 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
+
+    should_be_admin = user.username in settings.admin_username_set
+    if user.is_admin != should_be_admin:
+        user.is_admin = should_be_admin
+        await db.commit()
+        await db.refresh(user)
+
+    ban = await get_active_ban(db, user.id)
+    if ban is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ban_error_detail(ban))
+
     return user

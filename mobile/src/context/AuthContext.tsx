@@ -2,24 +2,36 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 
 import * as authApi from "../api/auth";
 import { clearToken, getToken, saveToken } from "../api/storage";
-import { User } from "../types";
+import { BanInfo, User } from "../types";
 
 interface AuthContextValue {
   user: User | null;
   token: string | null;
   isLoading: boolean;
+  banInfo: BanInfo | null;
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, displayName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (update: { displayName?: string; bio?: string }) => Promise<void>;
+  reportBanned: (info: BanInfo) => void;
+  clearBanInfo: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+function extractBanInfo(error: any): BanInfo | null {
+  const detail = error?.response?.data?.detail;
+  if (detail && typeof detail === "object" && detail.code === "banned") {
+    return { reason: detail.reason, expiresAt: detail.expires_at ?? null };
+  }
+  return null;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [banInfo, setBanInfo] = useState<BanInfo | null>(null);
 
   useEffect(() => {
     getToken()
@@ -29,7 +41,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const me = await authApi.fetchMe();
           setToken(stored);
           setUser(me);
-        } catch {
+        } catch (e) {
+          const ban = extractBanInfo(e);
+          if (ban) setBanInfo(ban);
           await clearToken();
         }
       })
@@ -40,11 +54,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await saveToken(response.access_token);
     setToken(response.access_token);
     setUser(response.user);
+    setBanInfo(null);
   };
 
   const login = async (username: string, password: string) => {
-    const response = await authApi.login(username, password);
-    await handleAuthResponse(response);
+    try {
+      const response = await authApi.login(username, password);
+      await handleAuthResponse(response);
+    } catch (e) {
+      const ban = extractBanInfo(e);
+      if (ban) {
+        setBanInfo(ban);
+        return;
+      }
+      throw e;
+    }
   };
 
   const register = async (username: string, displayName: string, password: string) => {
@@ -63,9 +87,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(updated);
   };
 
+  /** Called when a live WS connection gets cut because the account was just
+   * banned — signs the user out and shows the same ban screen a blocked
+   * login attempt would. */
+  const reportBanned = (info: BanInfo) => {
+    setBanInfo(info);
+    clearToken();
+    setToken(null);
+    setUser(null);
+  };
+
+  const clearBanInfo = () => setBanInfo(null);
+
   const value = useMemo(
-    () => ({ user, token, isLoading, login, register, logout, updateProfile }),
-    [user, token, isLoading]
+    () => ({
+      user,
+      token,
+      isLoading,
+      banInfo,
+      login,
+      register,
+      logout,
+      updateProfile,
+      reportBanned,
+      clearBanInfo,
+    }),
+    [user, token, isLoading, banInfo]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

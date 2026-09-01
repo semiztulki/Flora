@@ -50,6 +50,11 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost/flora
 - `GET /attachments/{id}` — attachment metadata; `GET /attachments/{id}/file`
   — the actual bytes. Both require the caller to be the uploader or a
   participant in a message that references the attachment.
+- `GET /admin/users/{username}` — user info + active ban, if any (admin only)
+- `POST /admin/users/{user_id}/ban` — `{duration_minutes, reason}`
+  (`duration_minutes: null` = permanent) — admin only, force-disconnects the
+  user's active WS connections immediately
+- `POST /admin/users/{user_id}/unban` — admin only, lifts a ban early
 - `WS /ws?token=<access_token>&status=online` — real-time channel. `status`
   (optional, defaults to `online`) sets your presence for this connection —
   pass `invisible` or `dnd` to avoid a flash of "online" before you can
@@ -89,6 +94,22 @@ removing the file and DB row and replacing the body of any message that
 referenced it with a placeholder. This keeps storage bounded without needing
 external object storage for the MVP; swapping in S3/R2 later just means
 replacing the local-disk read/write in `app/routers/attachments.py`.
+
+## Moderation
+
+There's one role: admin. Membership is config-driven, not stored as a
+separate table — set `ADMIN_USERNAMES` (comma-separated) in `.env` to your
+own username after you register, and it's synced onto `User.is_admin` on
+every authenticated request (so it takes effect on your next request, no
+migration needed). Admins can look up any user and ban them for a chosen
+duration or permanently, with a reason; the ban blocks login, every
+authenticated REST call, and new WS connections (existing ones are dropped
+immediately), and the client is told the reason and how long is left. An
+admin can't ban another admin. This intentionally does not include content
+scanning or a user-facing "report" flow yet — see the project README for
+why (short version: real end-to-end encryption and proactive server-side
+moderation are mutually exclusive, and this is a personal project without a
+trust & safety team, so moderation here is reactive by design).
 
 ## Offline delivery (store-and-forward)
 
