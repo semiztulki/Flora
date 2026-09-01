@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -135,13 +136,15 @@ async def _replay_offline_messages(db: AsyncSession, user_id: int) -> None:
         # a sound for every message in it (some of which the client may
         # already display locally from before the connection ever dropped).
         payload["replay"] = True
-        await manager.send_to_user(user_id, payload)
-        message.delivered = True
-        # Committed per-message rather than once at the end: if the
-        # connection dies partway through a long backlog, whatever was
-        # already sent stays marked delivered instead of being replayed
-        # (and re-sounding) again on every future reconnect.
-        await db.commit()
+        if await manager.send_to_user(user_id, payload):
+            message.delivered = True
+            # Committed per-message rather than once at the end: if the
+            # connection dies partway through a long backlog, whatever was
+            # already sent stays marked delivered instead of being replayed
+            # (and re-sounding) again on every future reconnect. A message
+            # that genuinely failed to send is left False on purpose — it'll
+            # be retried on the next connect instead of silently vanishing.
+            await db.commit()
 
 
 async def _replay_offline_group_messages(db: AsyncSession, user_id: int) -> None:
@@ -165,7 +168,8 @@ async def _replay_offline_group_messages(db: AsyncSession, user_id: int) -> None
         for message in pending:
             payload = await _group_message_payload(db, message)
             payload["replay"] = True  # backlog, not live — no incoming sound
-            await manager.send_to_user(user_id, payload)
+            if not await manager.send_to_user(user_id, payload):
+                break  # connection's gone — stop, the rest stays pending for next time
             membership.last_delivered_message_id = message.id
             # Per-message commit, same reasoning as _replay_offline_messages:
             # a dropped connection mid-backlog shouldn't undo progress on the
@@ -265,27 +269,55 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                             )
                             continue
 
-                    recipient_online = manager.is_online(recipient_id)
                     message = Message(
                         sender_id=user_id,
                         recipient_id=recipient_id,
                         body=body[:4000],
                         attachment_id=attachment_id,
                         client_id=client_id,
-                        delivered=recipient_online,
+                        # Starts False regardless of presence — flipped True
+                        # below only once a live send actually succeeds, not
+                        # just because the recipient looked online a moment
+                        # ago. Otherwise a push that silently fails (a dead
+                        # socket the server hasn't noticed yet) would mark
+                        # itself delivered and never get offered again via
+                        # offline replay — a real message quietly lost.
+                        delivered=False,
                     )
                     db.add(message)
-                    await db.commit()
+                    try:
+                        await db.commit()
+                    except IntegrityError:
+                        # Same client_id landed here from elsewhere at the
+                        # same moment (e.g. a retry racing in from another of
+                        # the sender's own devices) — the unique constraint
+                        # caught what the pre-check above can't fully rule out.
+                        await db.rollback()
+                        existing = await db.execute(
+                            select(Message).where(
+                                Message.sender_id == user_id, Message.client_id == client_id
+                            )
+                        )
+                        existing_message = existing.scalar_one_or_none()
+                        if existing_message is not None:
+                            await manager.send_to_user(
+                                user_id, await _message_payload(db, existing_message)
+                            )
+                        continue
                     await db.refresh(message)
 
                     payload = await _message_payload(db, message)
                     # Messaging yourself: recipient_id == user_id, so the
                     # "notify recipient" and "echo to sender" sends below
                     # would otherwise deliver the exact same payload twice
-                    # over the same connection.
-                    if recipient_online and recipient_id != user_id:
-                        await manager.send_to_user(recipient_id, payload)
-                    await manager.send_to_user(user_id, payload)
+                    # over the same connection — the single send to yourself
+                    # both confirms the send and counts as the delivery.
+                    if recipient_id == user_id:
+                        message.delivered = await manager.send_to_user(user_id, payload)
+                    else:
+                        message.delivered = await manager.send_to_user(recipient_id, payload)
+                        await manager.send_to_user(user_id, payload)
+                    await db.commit()
 
                 elif msg_type == "group_message":
                     group_id = data.get("group_id")
@@ -337,7 +369,23 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                         client_id=client_id,
                     )
                     db.add(message)
-                    await db.commit()
+                    try:
+                        await db.commit()
+                    except IntegrityError:
+                        # Same race as the DM path above.
+                        await db.rollback()
+                        existing = await db.execute(
+                            select(GroupMessage).where(
+                                GroupMessage.sender_id == user_id,
+                                GroupMessage.client_id == client_id,
+                            )
+                        )
+                        existing_message = existing.scalar_one_or_none()
+                        if existing_message is not None:
+                            await manager.send_to_user(
+                                user_id, await _group_message_payload(db, existing_message)
+                            )
+                        continue
                     await db.refresh(message)
 
                     payload = await _group_message_payload(db, message)
@@ -345,8 +393,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                         select(GroupMember).where(GroupMember.group_id == group_id)
                     )
                     for membership in members_result.scalars().all():
-                        if manager.is_online(membership.user_id):
-                            await manager.send_to_user(membership.user_id, payload)
+                        # Only advance the per-member watermark on a confirmed
+                        # send — same reasoning as the DM `delivered` flag:
+                        # presence alone doesn't mean the push actually landed.
+                        if await manager.send_to_user(membership.user_id, payload):
                             membership.last_delivered_message_id = message.id
                     await db.commit()
 

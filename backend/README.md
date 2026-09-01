@@ -150,3 +150,26 @@ classic ICQ's "you have offline messages" behaviour. For 1-to-1 messages this
 is tracked with a `delivered` flag per message; for group messages, since a
 message can have many recipients, each membership tracks
 `last_delivered_message_id` instead.
+
+Two correctness properties worth being explicit about, since messenger
+backends are notorious for getting them wrong under concurrency/flaky
+connections:
+- **Never cross-delivered.** `sender_id`/`recipient_id` are always derived
+  from that specific WebSocket connection's own authenticated `user_id` and
+  that connection's own received frame — never from any shared/global
+  state — so two connections can't race and swap which message goes to
+  whom. Python's async model (single-threaded, cooperative) plus this
+  per-connection scoping makes it structurally impossible, not just unlikely.
+- **`delivered` reflects a confirmed send, not presumed presence.**
+  `ConnectionManager.send_to_user` returns whether the write actually
+  succeeded (and drops any socket that turns out to be dead), and only that
+  return value flips `delivered`/`last_delivered_message_id` — a connection
+  that looks active but is actually a dead mobile socket the server hasn't
+  noticed yet no longer causes a message to be marked delivered (and
+  therefore never replayed) when it silently failed to send.
+- **`client_id` retries can't create a duplicate.** The unique constraint on
+  `(sender_id, client_id)` is the real guarantee — the pre-check `SELECT`
+  is just an optimization to skip a redundant insert attempt; a genuine
+  race (e.g. the same retry landing from two of the sender's own devices at
+  once) is caught by the DB constraint and handled the same way as the
+  pre-check.
