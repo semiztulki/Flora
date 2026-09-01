@@ -239,6 +239,25 @@ export default function ChatScreen({ route, navigation }: Props) {
     }
   }, [user, contact.id, sendMessage, refreshFromLocalDb]);
 
+  const handleMessageLongPress = useCallback(
+    (item: LocalMessage) => {
+      if (item.senderId === user?.id || !item.serverId) return;
+      Alert.alert(contact.display_name, undefined, [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Пожаловаться",
+          onPress: () =>
+            navigation.navigate("Report", {
+              reportedUsername: contact.username,
+              reportedDisplayName: contact.display_name,
+              messageId: item.serverId!,
+            }),
+        },
+      ]);
+    },
+    [user?.id, contact, navigation]
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -255,7 +274,10 @@ export default function ChatScreen({ route, navigation }: Props) {
         renderItem={({ item }) => {
           const isMine = item.senderId === user?.id;
           return (
-            <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
+            <Pressable
+              style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}
+              onLongPress={() => handleMessageLongPress(item)}
+            >
               {item.attachment && (
                 <AttachmentImage attachment={item.attachment} onPress={setViewerUri} />
               )}
@@ -267,7 +289,7 @@ export default function ChatScreen({ route, navigation }: Props) {
               {isMine && item.status === "pending" && (
                 <Text style={styles.pendingLabel}>отправка…</Text>
               )}
-            </View>
+            </Pressable>
           );
         }}
       />

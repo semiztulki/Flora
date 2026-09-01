@@ -13,6 +13,7 @@ import GroupChatScreen from "../screens/GroupChatScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import RegisterScreen from "../screens/RegisterScreen";
+import ReportScreen from "../screens/ReportScreen";
 import SearchScreen from "../screens/SearchScreen";
 import { RootStackParamList } from "../types";
 
@@ -56,6 +57,11 @@ export default function RootNavigator() {
               name="Admin"
               component={AdminScreen}
               options={{ title: "Модерация" }}
+            />
+            <Stack.Screen
+              name="Report"
+              component={ReportScreen}
+              options={{ title: "Пожаловаться" }}
             />
           </>
         ) : banInfo ? (

@@ -68,18 +68,25 @@ case-folds ASCII and a Russian-language app needs "привет" to match
 "Привет". Search only ever looks at what's already synced to the device, so
 it works offline too.
 
-## Moderation (bans)
+## Moderation (bans + reports)
 
 If your account is an admin (`ADMIN_USERNAMES` on the backend), a 🛡️ shows
-up in the Contacts header opening `AdminScreen` — look up any user by
-username, ban them for a preset duration or permanently with a reason, or
-lift an existing ban early. A banned user is shown a dedicated screen with
-the reason and a live countdown (`src/utils/formatRemaining.ts`), reached
-two ways: a blocked login attempt (`AuthContext.login` catches the
-structured 403 and sets `banInfo` instead of surfacing a generic error), or
-a live `"banned"` WS frame if they're banned while already connected
-(`SocketContext` hands it to `AuthContext.reportBanned`, which also signs
-them out).
+up in the Contacts header opening `AdminScreen` — an open-reports queue up
+top (jump straight into looking up the reported user, or resolve without
+acting), then a lookup box to ban any user for a preset duration or
+permanently with a reason, or lift an existing ban early. A banned user is
+shown a dedicated screen with the reason and a live countdown
+(`src/utils/formatRemaining.ts`), reached two ways: a blocked login attempt
+(`AuthContext.login` catches the structured 403 and sets `banInfo` instead
+of surfacing a generic error), or a live `"banned"` WS frame if they're
+banned while already connected (`SocketContext` hands it to
+`AuthContext.reportBanned`, which also signs them out).
+
+Anyone (not just admins) can report a user via `ReportScreen` — long-press a
+contact row (shows "Пожаловаться" and "Заблокировать" as two separate
+options, deliberately: block needs no justification, report is for
+something an admin should look at) or long-press someone else's message
+bubble in a DM or group chat to report that specific message.
 
 ## Search
 
@@ -97,5 +104,5 @@ it works offline too.
 - `src/components` — `AttachmentImage` (cached image bubble), `ImageViewerModal` (fullscreen tap-to-view)
 - `src/context/AuthContext` — login/register/logout, session restore, profile updates, ban state
 - `src/context/SocketContext` — WebSocket connection with reconnect/heartbeat, message/group-message/presence/typing/ban events, outbox flush, notification sound
-- `src/screens` — Login, Register, Contacts (contacts + groups + requests + blocked, unread badges, status picker), Chat, GroupChat, CreateGroup, Profile, Search, Admin, Banned
+- `src/screens` — Login, Register, Contacts (contacts + groups + requests + blocked, unread badges, status picker), Chat, GroupChat, CreateGroup, Profile, Search, Admin, Banned, Report
 - `src/navigation` — auth-gated stack navigator

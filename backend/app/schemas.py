@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import PresenceStatus
+from app.models import PresenceStatus, ReportCategory
 
 
 class UserRegister(BaseModel):
@@ -170,3 +170,38 @@ class AdminUserOut(BaseModel):
     last_seen: datetime
     is_admin: bool
     active_ban: BanOut | None = None
+
+
+class ReportCreate(BaseModel):
+    reported_username: str
+    category: ReportCategory
+    comment: str | None = Field(default=None, max_length=1000)
+    # At most one of these — the specific message being reported, if any.
+    message_id: int | None = None
+    group_message_id: int | None = None
+
+
+class ReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    reporter_id: int
+    reported_user_id: int
+    category: ReportCategory
+    comment: str | None
+    message_excerpt: str | None
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ReportAdminOut(BaseModel):
+    id: int
+    reporter_username: str
+    reported_user_id: int
+    reported_username: str
+    reported_display_name: str
+    category: ReportCategory
+    comment: str | None
+    message_excerpt: str | None
+    created_at: datetime
+    resolved_at: datetime | None

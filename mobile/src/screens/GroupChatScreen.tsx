@@ -74,6 +74,12 @@ export default function GroupChatScreen({ route, navigation }: Props) {
     return map;
   }, [group.members]);
 
+  const memberByUserId = useMemo(() => {
+    const map = new Map<number, (typeof group.members)[number]>();
+    for (const member of group.members) map.set(member.id, member);
+    return map;
+  }, [group.members]);
+
   const typingLabel = typingUserIds.length > 0 ? typingUserIds.map((id) => memberNames[id] ?? "кто-то").join(", ") + " печатает…" : null;
 
   useLayoutEffect(() => {
@@ -244,6 +250,27 @@ export default function GroupChatScreen({ route, navigation }: Props) {
     }
   }, [user, group.id, sendGroupMessage, refreshFromLocalDb]);
 
+  const handleMessageLongPress = useCallback(
+    (item: LocalGroupMessage) => {
+      if (item.senderId === user?.id || !item.serverId) return;
+      const sender = memberByUserId.get(item.senderId);
+      if (!sender) return;
+      Alert.alert(sender.display_name, undefined, [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Пожаловаться",
+          onPress: () =>
+            navigation.navigate("Report", {
+              reportedUsername: sender.username,
+              reportedDisplayName: sender.display_name,
+              groupMessageId: item.serverId!,
+            }),
+        },
+      ]);
+    },
+    [user?.id, memberByUserId, navigation]
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -259,7 +286,10 @@ export default function GroupChatScreen({ route, navigation }: Props) {
         renderItem={({ item }) => {
           const isMine = item.senderId === user?.id;
           return (
-            <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
+            <Pressable
+              style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}
+              onLongPress={() => handleMessageLongPress(item)}
+            >
               {!isMine && (
                 <Text style={styles.senderName}>
                   {memberNames[item.senderId] ?? "Участник"}
@@ -276,7 +306,7 @@ export default function GroupChatScreen({ route, navigation }: Props) {
               {isMine && item.status === "pending" && (
                 <Text style={styles.pendingLabel}>отправка…</Text>
               )}
-            </View>
+            </Pressable>
           );
         }}
       />

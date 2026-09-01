@@ -181,6 +181,24 @@ export default function ContactsScreen({ navigation }: Props) {
     ]);
   };
 
+  // Deliberately two separate actions, not one instead of the other: you
+  // block someone for any reason (an unwanted admirer, say), you report
+  // someone because their behaviour needs a moderator's attention.
+  const handleContactLongPress = (contact: User) => {
+    Alert.alert(contact.display_name, undefined, [
+      { text: "Отмена", style: "cancel" },
+      {
+        text: "Пожаловаться",
+        onPress: () =>
+          navigation.navigate("Report", {
+            reportedUsername: contact.username,
+            reportedDisplayName: contact.display_name,
+          }),
+      },
+      { text: "Заблокировать", style: "destructive", onPress: () => confirmBlock(contact) },
+    ]);
+  };
+
   const handleUnblock = async (blockedUser: BlockedUser) => {
     await contactsApi.unblockUser(blockedUser.username);
     setBlocked((prev) => prev.filter((b) => b.id !== blockedUser.id));
@@ -303,7 +321,7 @@ export default function ContactsScreen({ navigation }: Props) {
               <Pressable
                 style={styles.row}
                 onPress={() => navigation.navigate("Chat", { contact: item.contact })}
-                onLongPress={() => confirmBlock(item.contact)}
+                onLongPress={() => handleContactLongPress(item.contact)}
               >
                 <View
                   style={[styles.dot, { backgroundColor: statusColor[item.contact.status] }]}

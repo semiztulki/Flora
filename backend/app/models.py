@@ -90,6 +90,34 @@ class Ban(Base):
     banned_by: Mapped["User"] = relationship(foreign_keys=[banned_by_id])
 
 
+class ReportCategory(str, enum.Enum):
+    spam = "spam"
+    scam = "scam"
+    threats = "threats"
+    illegal_content = "illegal_content"
+    other = "other"
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reporter_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    reported_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    category: Mapped[ReportCategory] = mapped_column(Enum(ReportCategory))
+    comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Captured server-side from the actual row at submission time (never
+    # trusted from the client) — a snapshot, not a live link, so it survives
+    # the message later expiring (attachments) or the conversation moving on.
+    message_excerpt: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    reporter: Mapped["User"] = relationship(foreign_keys=[reporter_id])
+    reported_user: Mapped["User"] = relationship(foreign_keys=[reported_user_id])
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
 

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,7 +11,8 @@ import {
 } from "react-native";
 
 import * as adminApi from "../api/admin";
-import { AdminUserView } from "../types";
+import * as reportsApi from "../api/reports";
+import { AdminUserView, ReportAdminView, ReportCategory } from "../types";
 import { formatRemaining } from "../utils/formatRemaining";
 
 const DURATION_PRESETS: { label: string; minutes: number | null }[] = [
@@ -22,7 +24,16 @@ const DURATION_PRESETS: { label: string; minutes: number | null }[] = [
   { label: "Навсегда", minutes: null },
 ];
 
+const CATEGORY_LABELS: Record<ReportCategory, string> = {
+  spam: "Спам",
+  scam: "Мошенничество",
+  threats: "Угрозы / насилие",
+  illegal_content: "Незаконный контент",
+  other: "Другое",
+};
+
 export default function AdminScreen() {
+  const [reports, setReports] = useState<ReportAdminView[]>([]);
   const [username, setUsername] = useState("");
   const [target, setTarget] = useState<AdminUserView | null>(null);
   const [reason, setReason] = useState("");
@@ -35,12 +46,25 @@ export default function AdminScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleLookup = async () => {
+  const loadReports = useCallback(() => {
+    reportsApi.fetchOpenReports().then(setReports);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadReports();
+    }, [loadReports])
+  );
+
+  const handleLookup = useCallback(async (forUsername?: string) => {
+    const name = (forUsername ?? username).trim();
+    if (!name) return;
     setError(null);
     setIsLoading(true);
     try {
-      const found = await adminApi.lookupUser(username.trim());
+      const found = await adminApi.lookupUser(name);
       setTarget(found);
+      setUsername(name);
       setReason("");
     } catch (e: any) {
       setTarget(null);
@@ -48,7 +72,7 @@ export default function AdminScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [username]);
 
   const handleBan = async (minutes: number | null) => {
     if (!target || !reason.trim()) return;
@@ -79,8 +103,48 @@ export default function AdminScreen() {
     }
   };
 
+  const handleResolveReport = async (report: ReportAdminView) => {
+    await reportsApi.resolveReport(report.id);
+    setReports((prev) => prev.filter((r) => r.id !== report.id));
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {reports.length > 0 && (
+        <>
+          <Text style={styles.label}>Открытые жалобы ({reports.length})</Text>
+          {reports.map((report) => (
+            <View key={report.id} style={styles.reportCard}>
+              <Text style={styles.reportHeader}>
+                {report.reporter_username} → {report.reported_display_name} (@
+                {report.reported_username})
+              </Text>
+              <Text style={styles.reportCategory}>{CATEGORY_LABELS[report.category]}</Text>
+              {report.message_excerpt && (
+                <Text style={styles.reportExcerpt} numberOfLines={3}>
+                  «{report.message_excerpt}»
+                </Text>
+              )}
+              {report.comment && <Text style={styles.reportComment}>{report.comment}</Text>}
+              <View style={styles.reportActions}>
+                <Pressable
+                  style={styles.reportActionButton}
+                  onPress={() => handleLookup(report.reported_username)}
+                >
+                  <Text style={styles.reportActionButtonText}>Открыть в модерации</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.reportActionButton, styles.resolveButton]}
+                  onPress={() => handleResolveReport(report)}
+                >
+                  <Text style={styles.reportActionButtonText}>Закрыть жалобу</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </>
+      )}
+
       <Text style={styles.label}>Логин пользователя</Text>
       <View style={styles.searchRow}>
         <TextInput
@@ -90,7 +154,11 @@ export default function AdminScreen() {
           value={username}
           onChangeText={setUsername}
         />
-        <Pressable style={styles.searchButton} onPress={handleLookup} disabled={!username.trim()}>
+        <Pressable
+          style={styles.searchButton}
+          onPress={() => handleLookup()}
+          disabled={!username.trim()}
+        >
           <Text style={styles.searchButtonText}>Найти</Text>
         </Pressable>
       </View>
@@ -149,6 +217,27 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 16 },
   label: { fontSize: 13, fontWeight: "700", color: "#868e96", textTransform: "uppercase", marginBottom: 8 },
+  reportCard: {
+    borderWidth: 1,
+    borderColor: "#ffe3e3",
+    backgroundColor: "#fff5f5",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  reportHeader: { fontWeight: "700", marginBottom: 2 },
+  reportCategory: { color: "#c92a2a", fontWeight: "600", marginBottom: 4 },
+  reportExcerpt: { fontStyle: "italic", color: "#495057", marginBottom: 4 },
+  reportComment: { color: "#495057", marginBottom: 8 },
+  reportActions: { flexDirection: "row", gap: 8 },
+  reportActionButton: {
+    backgroundColor: "#495057",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  resolveButton: { backgroundColor: "#2f9e44" },
+  reportActionButtonText: { color: "#fff", fontWeight: "600", fontSize: 12 },
   searchRow: { flexDirection: "row", marginBottom: 8 },
   input: {
     flex: 1,

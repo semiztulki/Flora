@@ -105,11 +105,22 @@ migration needed). Admins can look up any user and ban them for a chosen
 duration or permanently, with a reason; the ban blocks login, every
 authenticated REST call, and new WS connections (existing ones are dropped
 immediately), and the client is told the reason and how long is left. An
-admin can't ban another admin. This intentionally does not include content
-scanning or a user-facing "report" flow yet — see the project README for
-why (short version: real end-to-end encryption and proactive server-side
-moderation are mutually exclusive, and this is a personal project without a
-trust & safety team, so moderation here is reactive by design).
+admin can't ban another admin.
+
+Users can also submit a report (`POST /reports`) against another user, either
+standalone or attached to a specific DM/group message — the excerpt is
+always read from the message row itself server-side, never taken from the
+client. This is deliberately a separate action from blocking, not a
+replacement for it: blocking is unconditional and needs no justification
+(muting an unwanted contact, say), while a report puts something in front of
+an admin. Admins list open reports (`GET /reports?resolved=false`) and
+resolve them (`POST /reports/{id}/resolve`) once handled — typically by
+looking up the reported user and banning them, but resolving and banning are
+independent actions. This still intentionally does not include automated
+content scanning — see the project README for why (short version: real
+end-to-end encryption and proactive server-side moderation are mutually
+exclusive, and this is a personal project without a trust & safety team, so
+moderation here is reactive, human-in-the-loop by design).
 
 ## Offline delivery (store-and-forward)
 

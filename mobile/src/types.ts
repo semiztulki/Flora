@@ -39,6 +39,32 @@ export interface AdminUserView {
   active_ban: Ban | null;
 }
 
+export type ReportCategory = "spam" | "scam" | "threats" | "illegal_content" | "other";
+
+export interface ReportSubmitResult {
+  id: number;
+  reporter_id: number;
+  reported_user_id: number;
+  category: ReportCategory;
+  comment: string | null;
+  message_excerpt: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface ReportAdminView {
+  id: number;
+  reporter_username: string;
+  reported_user_id: number;
+  reported_username: string;
+  reported_display_name: string;
+  category: ReportCategory;
+  comment: string | null;
+  message_excerpt: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export interface AuthResponse {
   access_token: string;
   token_type: string;
@@ -125,4 +151,10 @@ export type RootStackParamList = {
   Search: undefined;
   Banned: undefined;
   Admin: undefined;
+  Report: {
+    reportedUsername: string;
+    reportedDisplayName: string;
+    messageId?: number;
+    groupMessageId?: number;
+  };
 };
