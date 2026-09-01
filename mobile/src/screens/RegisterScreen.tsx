@@ -2,10 +2,12 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 
@@ -43,6 +45,7 @@ export default function RegisterScreen({ navigation }: Props) {
   };
 
   return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
     <View style={styles.container}>
       <Text style={styles.title}>Регистрация</Text>
       <TextInput
@@ -99,6 +102,7 @@ export default function RegisterScreen({ navigation }: Props) {
         <Text style={styles.link}>Уже есть аккаунт? Войти</Text>
       </Pressable>
     </View>
+    </TouchableWithoutFeedback>
   );
 }
 
