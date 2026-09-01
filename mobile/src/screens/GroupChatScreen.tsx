@@ -1,6 +1,9 @@
+import * as ImagePicker from "expo-image-picker";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -11,7 +14,11 @@ import {
   View,
 } from "react-native";
 
+import * as attachmentsApi from "../api/attachments";
 import * as groupsApi from "../api/groups";
+import AttachmentImage from "../components/AttachmentImage";
+import ImageViewerModal from "../components/ImageViewerModal";
+import { MAX_ATTACHMENT_BYTES } from "../config";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import {
@@ -22,6 +29,7 @@ import {
   markGroupRead,
   upsertConfirmedGroupMessage,
 } from "../db/groupMessages";
+import { LocalAttachment } from "../db/messages";
 import { RootStackParamList } from "../types";
 import { generateClientId } from "../utils/uuid";
 
@@ -30,6 +38,23 @@ type Props = NativeStackScreenProps<RootStackParamList, "GroupChat">;
 const TYPING_SEND_THROTTLE_MS = 3_000;
 const TYPING_EXPIRE_MS = 5_000;
 
+function formatMb(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(0);
+}
+
+function toLocalAttachment(
+  attachment: { id: number; content_type: string; size_bytes: number; width: number | null; height: number | null } | null
+): LocalAttachment | null {
+  if (!attachment) return null;
+  return {
+    id: attachment.id,
+    contentType: attachment.content_type,
+    sizeBytes: attachment.size_bytes,
+    width: attachment.width,
+    height: attachment.height,
+  };
+}
+
 export default function GroupChatScreen({ route, navigation }: Props) {
   const { group } = route.params;
   const { user } = useAuth();
@@ -37,6 +62,8 @@ export default function GroupChatScreen({ route, navigation }: Props) {
   const [messages, setMessages] = useState<LocalGroupMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [typingUserIds, setTypingUserIds] = useState<number[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [viewerUri, setViewerUri] = useState<string | null>(null);
   const listRef = useRef<FlatList<LocalGroupMessage>>(null);
   const lastTypingSentAt = useRef(0);
   const typingExpireTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
@@ -110,6 +137,7 @@ export default function GroupChatScreen({ route, navigation }: Props) {
             groupId: m.group_id,
             senderId: m.sender_id,
             body: m.body,
+            attachment: toLocalAttachment(m.attachment),
             createdAt: m.created_at,
           });
         }
@@ -133,6 +161,7 @@ export default function GroupChatScreen({ route, navigation }: Props) {
         groupId: message.group_id,
         senderId: message.sender_id,
         body: message.body,
+        attachment: toLocalAttachment(message.attachment),
         createdAt: message.created_at,
       }).then(refreshFromLocalDb);
     });
@@ -156,6 +185,65 @@ export default function GroupChatScreen({ route, navigation }: Props) {
     sendGroupMessage(group.id, body, clientId);
   }, [draft, sendGroupMessage, group.id, user, refreshFromLocalDb]);
 
+  const handleAttachImage = useCallback(async () => {
+    if (!user) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Нет доступа", "Разрешите доступ к галерее, чтобы отправлять фото.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+
+    if ((asset.fileSize ?? 0) > MAX_ATTACHMENT_BYTES) {
+      Alert.alert(
+        "Файл слишком большой",
+        `Максимальный размер фото через сервер — ${formatMb(MAX_ATTACHMENT_BYTES)} МБ. ` +
+          "Прямая передача больших файлов между устройствами (только когда всё в сети) пока в разработке."
+      );
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const fileName = asset.fileName ?? `photo-${Date.now()}.jpg`;
+      const mimeType = asset.mimeType ?? "image/jpeg";
+      const uploaded = await attachmentsApi.uploadAttachment(asset.uri, fileName, mimeType);
+
+      const clientId = generateClientId();
+      const createdAt = new Date().toISOString();
+      const attachment: LocalAttachment = {
+        id: uploaded.id,
+        contentType: uploaded.content_type,
+        sizeBytes: uploaded.size_bytes,
+        width: uploaded.width,
+        height: uploaded.height,
+      };
+      await insertPendingGroupMessage({
+        clientId,
+        groupId: group.id,
+        senderId: user.id,
+        body: "",
+        attachment,
+        createdAt,
+      });
+      await refreshFromLocalDb();
+      sendGroupMessage(group.id, "", clientId, uploaded.id);
+    } catch (e: any) {
+      Alert.alert(
+        "Не удалось отправить фото",
+        e?.response?.data?.detail ?? "Попробуйте ещё раз"
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  }, [user, group.id, sendGroupMessage, refreshFromLocalDb]);
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -177,9 +265,14 @@ export default function GroupChatScreen({ route, navigation }: Props) {
                   {memberNames[item.senderId] ?? "Участник"}
                 </Text>
               )}
-              <Text style={isMine ? styles.bubbleTextMine : styles.bubbleTextTheirs}>
-                {item.body}
-              </Text>
+              {item.attachment && (
+                <AttachmentImage attachment={item.attachment} onPress={setViewerUri} />
+              )}
+              {item.body.length > 0 && (
+                <Text style={isMine ? styles.bubbleTextMine : styles.bubbleTextTheirs}>
+                  {item.body}
+                </Text>
+              )}
               {isMine && item.status === "pending" && (
                 <Text style={styles.pendingLabel}>отправка…</Text>
               )}
@@ -188,6 +281,13 @@ export default function GroupChatScreen({ route, navigation }: Props) {
         }}
       />
       <View style={styles.inputRow}>
+        <Pressable style={styles.attachButton} onPress={handleAttachImage} disabled={isUploading}>
+          {isUploading ? (
+            <ActivityIndicator size="small" color="#2f9e44" />
+          ) : (
+            <Text style={styles.attachButtonText}>📎</Text>
+          )}
+        </Pressable>
         <TextInput
           style={styles.input}
           placeholder="Сообщение"
@@ -199,6 +299,7 @@ export default function GroupChatScreen({ route, navigation }: Props) {
           <Text style={styles.sendButtonText}>Отпр.</Text>
         </Pressable>
       </View>
+      <ImageViewerModal uri={viewerUri} onClose={() => setViewerUri(null)} />
     </KeyboardAvoidingView>
   );
 }
@@ -220,6 +321,15 @@ const styles = StyleSheet.create({
     borderTopColor: "#f1f3f5",
     alignItems: "flex-end",
   },
+  attachButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 4,
+  },
+  attachButtonText: { fontSize: 20 },
   input: {
     flex: 1,
     borderWidth: 1,

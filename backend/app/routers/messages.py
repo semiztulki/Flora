@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -19,7 +20,7 @@ async def get_history(
 ):
     """With since_id=0 (default) returns full history; pass the highest message id
     already cached on the client to fetch only what's new since then (delta sync)."""
-    query = select(Message).where(
+    query = select(Message).options(selectinload(Message.attachment)).where(
         or_(
             (Message.sender_id == current_user.id) & (Message.recipient_id == contact_id),
             (Message.sender_id == contact_id) & (Message.recipient_id == current_user.id),

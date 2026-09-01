@@ -75,6 +75,16 @@ class BlockOut(BaseModel):
     display_name: str
 
 
+class AttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    content_type: str
+    size_bytes: int
+    width: int | None = None
+    height: int | None = None
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -82,6 +92,7 @@ class MessageOut(BaseModel):
     sender_id: int
     recipient_id: int
     body: str
+    attachment: AttachmentOut | None = None
     client_id: str | None = None
     delivered: bool
     created_at: datetime
@@ -124,5 +135,6 @@ class GroupMessageOut(BaseModel):
     group_id: int
     sender_id: int
     body: str
+    attachment: AttachmentOut | None = None
     client_id: str | None = None
     created_at: datetime

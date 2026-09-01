@@ -45,12 +45,17 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost/flora
 - `POST /groups` — `{name, member_usernames: [...]}` create a group
 - `POST /groups/{group_id}/members` — `{username}` add a member to a group
 - `GET /groups/{group_id}/messages?since_id=0` — group history, same delta-sync param
+- `POST /attachments` — multipart `file` upload (image only, capped at
+  `max_attachment_bytes`) -> `{id, content_type, size_bytes, width, height}`
+- `GET /attachments/{id}` — attachment metadata; `GET /attachments/{id}/file`
+  — the actual bytes. Both require the caller to be the uploader or a
+  participant in a message that references the attachment.
 - `WS /ws?token=<access_token>&status=online` — real-time channel. `status`
   (optional, defaults to `online`) sets your presence for this connection —
   pass `invisible` or `dnd` to avoid a flash of "online" before you can
   update it. JSON frames:
-  - send `{"type": "message", "recipient_id": 2, "body": "hi", "client_id": "<uuid>"}`
-  - send `{"type": "group_message", "group_id": 1, "body": "hi", "client_id": "<uuid>"}`
+  - send `{"type": "message", "recipient_id": 2, "body": "hi", "attachment_id": 5, "client_id": "<uuid>"}` (`body` may be empty when `attachment_id` is set)
+  - send `{"type": "group_message", "group_id": 1, "body": "hi", "attachment_id": 5, "client_id": "<uuid>"}`
   - send `{"type": "presence", "status": "online" | "away" | "dnd" | "invisible"}`
   - send `{"type": "typing", "recipient_id": 2}` or `{"type": "typing", "group_id": 1}` — ephemeral, not persisted
   - send `{"type": "ping"}` -> receive `{"type": "pong"}` (heartbeat)
@@ -66,6 +71,24 @@ has that user as a contact. **Invisible** means actually connected — you still
 receive messages instantly — but everyone else is told you're `offline`.
 Blocking someone severs any contact relationship in both directions and
 silently rejects direct messages between the two of you.
+
+## Photo attachments
+
+Images only (jpeg/png/gif/webp — content type is sniffed from the actual
+bytes with Pillow, never trusted from the client), capped at
+`max_attachment_bytes` (8 MB by default), stored on local disk under
+`upload_dir`. There's no P2P or direct-transfer path for larger files yet —
+that's planned as a live relay through the existing WebSocket (both sides
+online, nothing persisted), not real device-to-device P2P, since mobile P2P
+needs `react-native-webrtc` (which breaks the plain Expo Go workflow) and
+usually a TURN relay anyway.
+
+Attachments are deleted automatically after `attachment_retention_days` (30
+by default) — a background task in `app/cleanup.py` runs every 6 hours,
+removing the file and DB row and replacing the body of any message that
+referenced it with a placeholder. This keeps storage bounded without needing
+external object storage for the MVP; swapping in S3/R2 later just means
+replacing the local-disk read/write in `app/routers/attachments.py`.
 
 ## Offline delivery (store-and-forward)
 

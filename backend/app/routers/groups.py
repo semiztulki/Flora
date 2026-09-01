@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -124,7 +125,9 @@ async def group_history(
 ):
     await _require_member(db, group_id, current_user.id)
 
-    query = select(GroupMessage).where(GroupMessage.group_id == group_id)
+    query = select(GroupMessage).options(selectinload(GroupMessage.attachment)).where(
+        GroupMessage.group_id == group_id
+    )
     if since_id:
         query = query.where(GroupMessage.id > since_id)
     result = await db.execute(query.order_by(GroupMessage.created_at))

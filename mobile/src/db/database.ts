@@ -16,6 +16,11 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
           recipient_id INTEGER NOT NULL,
           peer_id INTEGER NOT NULL,
           body TEXT NOT NULL,
+          attachment_id INTEGER,
+          attachment_content_type TEXT,
+          attachment_size INTEGER,
+          attachment_width INTEGER,
+          attachment_height INTEGER,
           created_at TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'sent'
         );
@@ -35,6 +40,11 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
           group_id INTEGER NOT NULL,
           sender_id INTEGER NOT NULL,
           body TEXT NOT NULL,
+          attachment_id INTEGER,
+          attachment_content_type TEXT,
+          attachment_size INTEGER,
+          attachment_width INTEGER,
+          attachment_height INTEGER,
           created_at TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'sent'
         );

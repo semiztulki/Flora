@@ -6,7 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import decode_access_token
 from app.database import async_session
-from app.models import Block, Contact, GroupMember, GroupMessage, Message, PresenceStatus, User
+from app.models import (
+    Attachment,
+    Block,
+    Contact,
+    GroupMember,
+    GroupMessage,
+    Message,
+    PresenceStatus,
+    User,
+)
 from app.websocket_manager import manager
 
 _SETTABLE_STATUSES = {
@@ -19,25 +28,42 @@ _SETTABLE_STATUSES = {
 router = APIRouter(tags=["ws"])
 
 
-def _message_payload(message: Message) -> dict:
+async def _attachment_payload(db: AsyncSession, attachment_id: int | None) -> dict | None:
+    if attachment_id is None:
+        return None
+    attachment = await db.get(Attachment, attachment_id)
+    if attachment is None:
+        return None
+    return {
+        "id": attachment.id,
+        "content_type": attachment.content_type,
+        "size_bytes": attachment.size_bytes,
+        "width": attachment.width,
+        "height": attachment.height,
+    }
+
+
+async def _message_payload(db: AsyncSession, message: Message) -> dict:
     return {
         "type": "message",
         "id": message.id,
         "sender_id": message.sender_id,
         "recipient_id": message.recipient_id,
         "body": message.body,
+        "attachment": await _attachment_payload(db, message.attachment_id),
         "client_id": message.client_id,
         "created_at": message.created_at.isoformat(),
     }
 
 
-def _group_message_payload(message: GroupMessage) -> dict:
+async def _group_message_payload(db: AsyncSession, message: GroupMessage) -> dict:
     return {
         "type": "group_message",
         "id": message.id,
         "group_id": message.group_id,
         "sender_id": message.sender_id,
         "body": message.body,
+        "attachment": await _attachment_payload(db, message.attachment_id),
         "client_id": message.client_id,
         "created_at": message.created_at.isoformat(),
     }
@@ -83,7 +109,7 @@ async def _replay_offline_messages(db: AsyncSession, user_id: int) -> None:
         return
 
     for message in pending:
-        await manager.send_to_user(user_id, _message_payload(message))
+        await manager.send_to_user(user_id, await _message_payload(db, message))
         message.delivered = True
     await db.commit()
 
@@ -107,7 +133,7 @@ async def _replay_offline_group_messages(db: AsyncSession, user_id: int) -> None
         if not pending:
             continue
         for message in pending:
-            await manager.send_to_user(user_id, _group_message_payload(message))
+            await manager.send_to_user(user_id, await _group_message_payload(db, message))
         membership.last_delivered_message_id = pending[-1].id
     await db.commit()
 
@@ -151,9 +177,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                     recipient_id = data.get("recipient_id")
                     body = (data.get("body") or "").strip()
                     client_id = data.get("client_id")
-                    if not recipient_id or not body:
+                    attachment_id = data.get("attachment_id")
+                    if not recipient_id or (not body and not attachment_id):
                         await websocket.send_json({"type": "error", "detail": "Invalid message"})
                         continue
+
+                    if attachment_id:
+                        attachment = await db.get(Attachment, attachment_id)
+                        if attachment is None or attachment.uploader_id != user_id:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "Invalid attachment"}
+                            )
+                            continue
 
                     blocked = await db.execute(
                         select(Block).where(
@@ -177,7 +212,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                         if existing_message is not None:
                             # Retry after a dropped connection: just re-confirm to the
                             # sender, don't re-notify the recipient a second time.
-                            await manager.send_to_user(user_id, _message_payload(existing_message))
+                            await manager.send_to_user(
+                                user_id, await _message_payload(db, existing_message)
+                            )
                             continue
 
                     recipient_online = manager.is_online(recipient_id)
@@ -185,6 +222,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                         sender_id=user_id,
                         recipient_id=recipient_id,
                         body=body[:4000],
+                        attachment_id=attachment_id,
                         client_id=client_id,
                         delivered=recipient_online,
                     )
@@ -192,7 +230,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                     await db.commit()
                     await db.refresh(message)
 
-                    payload = _message_payload(message)
+                    payload = await _message_payload(db, message)
                     if recipient_online:
                         await manager.send_to_user(recipient_id, payload)
                     await manager.send_to_user(user_id, payload)
@@ -201,9 +239,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                     group_id = data.get("group_id")
                     body = (data.get("body") or "").strip()
                     client_id = data.get("client_id")
-                    if not group_id or not body:
+                    attachment_id = data.get("attachment_id")
+                    if not group_id or (not body and not attachment_id):
                         await websocket.send_json({"type": "error", "detail": "Invalid message"})
                         continue
+
+                    if attachment_id:
+                        attachment = await db.get(Attachment, attachment_id)
+                        if attachment is None or attachment.uploader_id != user_id:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "Invalid attachment"}
+                            )
+                            continue
 
                     membership_result = await db.execute(
                         select(GroupMember).where(
@@ -226,7 +273,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                         existing_message = existing.scalar_one_or_none()
                         if existing_message is not None:
                             await manager.send_to_user(
-                                user_id, _group_message_payload(existing_message)
+                                user_id, await _group_message_payload(db, existing_message)
                             )
                             continue
 
@@ -234,13 +281,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "on
                         group_id=group_id,
                         sender_id=user_id,
                         body=body[:4000],
+                        attachment_id=attachment_id,
                         client_id=client_id,
                     )
                     db.add(message)
                     await db.commit()
                     await db.refresh(message)
 
-                    payload = _group_message_payload(message)
+                    payload = await _group_message_payload(db, message)
                     members_result = await db.execute(
                         select(GroupMember).where(GroupMember.group_id == group_id)
                     )

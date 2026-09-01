@@ -13,6 +13,14 @@
     "android": {
       "package": "com.flora.app"
     },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Flora использует доступ к галерее, чтобы отправлять фото в чатах."
+        }
+      ]
+    ],
     "extra": {
       "apiUrl": "http://localhost:8000",
       "wsUrl": "ws://localhost:8000"

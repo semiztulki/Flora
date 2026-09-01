@@ -13,8 +13,18 @@ type PresenceListener = (userId: number, status: PresenceStatus, lastSeen: strin
 type TypingListener = (senderId: number, recipientId?: number, groupId?: number) => void;
 
 interface SocketContextValue {
-  sendMessage: (recipientId: number, body: string, clientId: string) => void;
-  sendGroupMessage: (groupId: number, body: string, clientId: string) => void;
+  sendMessage: (
+    recipientId: number,
+    body: string,
+    clientId: string,
+    attachmentId?: number
+  ) => void;
+  sendGroupMessage: (
+    groupId: number,
+    body: string,
+    clientId: string,
+    attachmentId?: number
+  ) => void;
   sendTyping: (target: { recipientId?: number; groupId?: number }) => void;
   setPresence: (status: SettableStatus) => void;
   onMessage: (listener: MessageListener) => () => void;
@@ -73,6 +83,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             type: "message",
             recipient_id: message.recipientId,
             body: message.body,
+            attachment_id: message.attachment?.id,
             client_id: message.clientId,
           })
         );
@@ -86,6 +97,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
             type: "group_message",
             group_id: message.groupId,
             body: message.body,
+            attachment_id: message.attachment?.id,
             client_id: message.clientId,
           })
         );
@@ -171,22 +183,44 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     };
   }, [token]);
 
-  const sendMessage = (recipientId: number, body: string, clientId: string) => {
+  const sendMessage = (
+    recipientId: number,
+    body: string,
+    clientId: string,
+    attachmentId?: number
+  ) => {
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(
-        JSON.stringify({ type: "message", recipient_id: recipientId, body, client_id: clientId })
+        JSON.stringify({
+          type: "message",
+          recipient_id: recipientId,
+          body,
+          attachment_id: attachmentId,
+          client_id: clientId,
+        })
       );
     }
     // If not connected, the caller has already persisted the message locally
     // as 'pending' — it will be sent by flushOutbox() on the next reconnect.
   };
 
-  const sendGroupMessage = (groupId: number, body: string, clientId: string) => {
+  const sendGroupMessage = (
+    groupId: number,
+    body: string,
+    clientId: string,
+    attachmentId?: number
+  ) => {
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(
-        JSON.stringify({ type: "group_message", group_id: groupId, body, client_id: clientId })
+        JSON.stringify({
+          type: "group_message",
+          group_id: groupId,
+          body,
+          attachment_id: attachmentId,
+          client_id: clientId,
+        })
       );
     }
   };

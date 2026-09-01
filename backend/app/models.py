@@ -70,6 +70,23 @@ class Block(Base):
     blocked: Mapped["User"] = relationship(foreign_keys=[blocked_id])
 
 
+class Attachment(Base):
+    __tablename__ = "attachments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uploader_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    content_type: Mapped[str] = mapped_column(String(100))
+    size_bytes: Mapped[int]
+    # Filename on disk (or future object-storage key) — never the original
+    # filename, to avoid path traversal and collisions.
+    storage_key: Mapped[str] = mapped_column(String(255))
+    width: Mapped[int | None] = mapped_column(nullable=True)
+    height: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+    uploader: Mapped["User"] = relationship()
+
+
 class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (UniqueConstraint("sender_id", "client_id", name="uq_sender_client_id"),)
@@ -78,6 +95,7 @@ class Message(Base):
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     body: Mapped[str] = mapped_column(String(4000))
+    attachment_id: Mapped[int | None] = mapped_column(ForeignKey("attachments.id"), nullable=True)
     # Client-generated id for idempotent sends (retries after a dropped connection
     # must not create duplicate messages). Unique per sender; NULL allowed for rows
     # that predate this field.
@@ -89,6 +107,7 @@ class Message(Base):
 
     sender: Mapped["User"] = relationship(foreign_keys=[sender_id])
     recipient: Mapped["User"] = relationship(foreign_keys=[recipient_id])
+    attachment: Mapped["Attachment | None"] = relationship()
 
 
 class Group(Base):
@@ -127,8 +146,10 @@ class GroupMessage(Base):
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     body: Mapped[str] = mapped_column(String(4000))
+    attachment_id: Mapped[int | None] = mapped_column(ForeignKey("attachments.id"), nullable=True)
     client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
     group: Mapped["Group"] = relationship()
     sender: Mapped["User"] = relationship()
+    attachment: Mapped["Attachment | None"] = relationship()

@@ -18,11 +18,20 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface Attachment {
+  id: number;
+  content_type: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+}
+
 export interface Message {
   id: number;
   sender_id: number;
   recipient_id: number;
   body: string;
+  attachment: Attachment | null;
   client_id: string | null;
   created_at: string;
 }
@@ -46,6 +55,7 @@ export interface GroupMessage {
   group_id: number;
   sender_id: number;
   body: string;
+  attachment: Attachment | null;
   client_id: string | null;
   created_at: string;
 }
