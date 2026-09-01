@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 
 import { getToken } from "../api/storage";
 import { API_URL } from "../config";
