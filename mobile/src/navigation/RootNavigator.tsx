@@ -11,6 +11,7 @@ import GroupChatScreen from "../screens/GroupChatScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import RegisterScreen from "../screens/RegisterScreen";
+import SearchScreen from "../screens/SearchScreen";
 import { RootStackParamList } from "../types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -43,6 +44,11 @@ export default function RootNavigator() {
               name="Profile"
               component={ProfileScreen}
               options={{ title: "Профиль" }}
+            />
+            <Stack.Screen
+              name="Search"
+              component={SearchScreen}
+              options={{ title: "Поиск" }}
             />
           </>
         ) : (

@@ -222,6 +222,9 @@ export default function ContactsScreen({ navigation }: Props) {
           <Text style={styles.title}>{user?.display_name}</Text>
         </Pressable>
         <View style={styles.headerActions}>
+          <Pressable onPress={() => navigation.navigate("Search")}>
+            <Text style={styles.link}>🔍</Text>
+          </Pressable>
           <Pressable onPress={() => navigation.navigate("Profile")}>
             <Text style={styles.link}>Профиль</Text>
           </Pressable>

@@ -59,12 +59,21 @@ download) and cached under the app's document directory, so — like the rest
 of the chat history — they're viewable offline after the first load without
 re-fetching.
 
+## Search
+
+🔍 in the Contacts header opens a global search over the local message log —
+DMs and group chats together, most recent first. It filters in JS
+(`src/db/search.ts`) rather than SQL `LIKE`, since SQLite's `LIKE` only
+case-folds ASCII and a Russian-language app needs "привет" to match
+"Привет". Search only ever looks at what's already synced to the device, so
+it works offline too.
+
 ## Structure
 
 - `src/api` — REST client (axios) + secure token storage
-- `src/db` — local SQLite message/group-message log and read state (offline-first source of truth for chat UI)
+- `src/db` — local SQLite message/group-message log, read state, and search (offline-first source of truth for chat UI)
 - `src/components` — `AttachmentImage` (cached image bubble), `ImageViewerModal` (fullscreen tap-to-view)
 - `src/context/AuthContext` — login/register/logout, session restore, profile updates
 - `src/context/SocketContext` — WebSocket connection with reconnect/heartbeat, message/group-message/presence/typing events, outbox flush, notification sound
-- `src/screens` — Login, Register, Contacts (contacts + groups + requests + blocked, unread badges, status picker), Chat, GroupChat, CreateGroup, Profile
+- `src/screens` — Login, Register, Contacts (contacts + groups + requests + blocked, unread badges, status picker), Chat, GroupChat, CreateGroup, Profile, Search
 - `src/navigation` — auth-gated stack navigator

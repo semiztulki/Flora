@@ -94,4 +94,5 @@ export type RootStackParamList = {
   GroupChat: { group: Group };
   CreateGroup: undefined;
   Profile: undefined;
+  Search: undefined;
 };
