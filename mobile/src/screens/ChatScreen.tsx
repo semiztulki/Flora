@@ -27,17 +27,49 @@ import { generateClientId } from "../utils/uuid";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Chat">;
 
+const TYPING_SEND_THROTTLE_MS = 3_000;
+const TYPING_EXPIRE_MS = 5_000;
+
 export default function ChatScreen({ route, navigation }: Props) {
   const { contact } = route.params;
   const { user } = useAuth();
-  const { sendMessage, onMessage } = useSocket();
+  const { sendMessage, onMessage, sendTyping, onTyping } = useSocket();
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [isContactTyping, setIsContactTyping] = useState(false);
   const listRef = useRef<FlatList<LocalMessage>>(null);
+  const lastTypingSentAt = useRef(0);
+  const typingExpireTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title: contact.display_name });
-  }, [navigation, contact]);
+    navigation.setOptions({
+      title: isContactTyping ? `${contact.display_name} печатает…` : contact.display_name,
+    });
+  }, [navigation, contact, isContactTyping]);
+
+  useEffect(() => {
+    return onTyping((senderId, recipientId) => {
+      if (senderId !== contact.id || recipientId !== user?.id) return;
+      setIsContactTyping(true);
+      if (typingExpireTimer.current) clearTimeout(typingExpireTimer.current);
+      typingExpireTimer.current = setTimeout(() => setIsContactTyping(false), TYPING_EXPIRE_MS);
+    });
+  }, [onTyping, contact.id, user?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (typingExpireTimer.current) clearTimeout(typingExpireTimer.current);
+    };
+  }, []);
+
+  const handleDraftChange = (text: string) => {
+    setDraft(text);
+    const now = Date.now();
+    if (now - lastTypingSentAt.current > TYPING_SEND_THROTTLE_MS) {
+      lastTypingSentAt.current = now;
+      sendTyping({ recipientId: contact.id });
+    }
+  };
 
   const refreshFromLocalDb = useCallback(async () => {
     const rows = await getMessagesForPeer(contact.id);
@@ -124,6 +156,7 @@ export default function ChatScreen({ route, navigation }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
+      {contact.bio && <Text style={styles.bio}>{contact.bio}</Text>}
       <FlatList
         ref={listRef}
         data={messages}
@@ -149,7 +182,7 @@ export default function ChatScreen({ route, navigation }: Props) {
           style={styles.input}
           placeholder="Сообщение"
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={handleDraftChange}
           multiline
         />
         <Pressable style={styles.sendButton} onPress={handleSend} disabled={!draft.trim()}>
@@ -162,6 +195,14 @@ export default function ChatScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  bio: {
+    fontSize: 12,
+    color: "#868e96",
+    textAlign: "center",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f3f5",
+  },
   list: { padding: 16 },
   bubble: { maxWidth: "80%", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8 },
   bubbleMine: { backgroundColor: "#2f9e44", alignSelf: "flex-end" },

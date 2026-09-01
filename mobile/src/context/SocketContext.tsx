@@ -4,19 +4,22 @@ import { getPendingMessages } from "../db/messages";
 import { getPendingGroupMessages } from "../db/groupMessages";
 import { WS_URL } from "../config";
 import { useAuth } from "./AuthContext";
-import { GroupMessage, Message, PresenceStatus, ServerEvent } from "../types";
+import { GroupMessage, Message, PresenceStatus, ServerEvent, SettableStatus } from "../types";
 
 type MessageListener = (message: Message) => void;
 type GroupMessageListener = (message: GroupMessage) => void;
 type PresenceListener = (userId: number, status: PresenceStatus, lastSeen: string) => void;
+type TypingListener = (senderId: number, recipientId?: number, groupId?: number) => void;
 
 interface SocketContextValue {
   sendMessage: (recipientId: number, body: string, clientId: string) => void;
   sendGroupMessage: (groupId: number, body: string, clientId: string) => void;
-  setPresence: (status: "online" | "away") => void;
+  sendTyping: (target: { recipientId?: number; groupId?: number }) => void;
+  setPresence: (status: SettableStatus) => void;
   onMessage: (listener: MessageListener) => () => void;
   onGroupMessage: (listener: GroupMessageListener) => () => void;
   onPresence: (listener: PresenceListener) => () => void;
+  onTyping: (listener: TypingListener) => () => void;
   isConnected: boolean;
 }
 
@@ -33,7 +36,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const messageListeners = useRef(new Set<MessageListener>());
   const groupMessageListeners = useRef(new Set<GroupMessageListener>());
   const presenceListeners = useRef(new Set<PresenceListener>());
+  const typingListeners = useRef(new Set<TypingListener>());
   const [isConnected, setIsConnected] = useState(false);
+  // Preserved across reconnects so dropping and regaining signal while
+  // invisible/dnd doesn't silently pop the user back to "online".
+  const desiredStatus = useRef<SettableStatus>("online");
 
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,7 +100,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const connect = () => {
       if (!token || isUnmounted.current) return;
 
-      const socket = new WebSocket(`${WS_URL}/ws?token=${token}`);
+      const socket = new WebSocket(`${WS_URL}/ws?token=${token}&status=${desiredStatus.current}`);
       wsRef.current = socket;
 
       socket.onopen = () => {
@@ -114,6 +121,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         } else if (data.type === "presence") {
           presenceListeners.current.forEach((listener) =>
             listener(data.user_id, data.status, data.last_seen)
+          );
+        } else if (data.type === "typing") {
+          typingListeners.current.forEach((listener) =>
+            listener(data.sender_id, data.recipient_id, data.group_id)
           );
         }
       };
@@ -167,11 +178,27 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const setPresence = (status: "online" | "away") => {
+  const sendTyping = (target: { recipientId?: number; groupId?: number }) => {
+    const socket = wsRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: "typing",
+          recipient_id: target.recipientId,
+          group_id: target.groupId,
+        })
+      );
+    }
+  };
+
+  const setPresence = (status: SettableStatus) => {
+    desiredStatus.current = status;
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "presence", status }));
     }
+    // If not connected, the new desired status is picked up as the initial
+    // status on the next reconnect (see the `status=` query param above).
   };
 
   const onMessage = (listener: MessageListener) => {
@@ -189,15 +216,22 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     return () => presenceListeners.current.delete(listener);
   };
 
+  const onTyping = (listener: TypingListener) => {
+    typingListeners.current.add(listener);
+    return () => typingListeners.current.delete(listener);
+  };
+
   return (
     <SocketContext.Provider
       value={{
         sendMessage,
         sendGroupMessage,
+        sendTyping,
         setPresence,
         onMessage,
         onGroupMessage,
         onPresence,
+        onTyping,
         isConnected,
       }}
     >

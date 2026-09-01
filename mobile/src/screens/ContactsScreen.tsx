@@ -2,6 +2,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  Alert,
+  Modal,
   Pressable,
   SectionList,
   StyleSheet,
@@ -16,29 +18,45 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
 import { getUnreadGroupCounts, upsertConfirmedGroupMessage } from "../db/groupMessages";
-import { Group, RootStackParamList, User } from "../types";
+import { BlockedUser, ContactRequest, Group, RootStackParamList, SettableStatus, User } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
 
 type Row =
+  | { kind: "request"; request: ContactRequest }
   | { kind: "contact"; contact: User }
-  | { kind: "group"; group: Group };
+  | { kind: "group"; group: Group }
+  | { kind: "blocked"; blocked: BlockedUser };
 
 const statusColor: Record<User["status"], string> = {
   online: "#2f9e44",
   away: "#f08c00",
+  dnd: "#e03131",
+  invisible: "#868e96",
   offline: "#adb5bd",
 };
 
+const STATUS_OPTIONS: { value: SettableStatus; label: string }[] = [
+  { value: "online", label: "В сети" },
+  { value: "away", label: "Отошёл" },
+  { value: "dnd", label: "Не беспокоить" },
+  { value: "invisible", label: "Невидимка" },
+];
+
 export default function ContactsScreen({ navigation }: Props) {
   const { user, logout } = useAuth();
-  const { onPresence, onMessage, onGroupMessage, isConnected } = useSocket();
+  const { onPresence, onMessage, onGroupMessage, setPresence, isConnected } = useSocket();
   const [contacts, setContacts] = useState<User[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [requests, setRequests] = useState<ContactRequest[]>([]);
+  const [blocked, setBlocked] = useState<BlockedUser[]>([]);
   const [unread, setUnread] = useState<Record<number, number>>({});
   const [unreadGroups, setUnreadGroups] = useState<Record<number, number>>({});
   const [newUsername, setNewUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [myStatus, setMyStatus] = useState<SettableStatus>("online");
+  const [statusPickerVisible, setStatusPickerVisible] = useState(false);
 
   const loadContacts = useCallback(async () => {
     setContacts(await contactsApi.fetchContacts());
@@ -46,6 +64,14 @@ export default function ContactsScreen({ navigation }: Props) {
 
   const loadGroups = useCallback(async () => {
     setGroups(await groupsApi.fetchGroups());
+  }, []);
+
+  const loadRequests = useCallback(async () => {
+    setRequests(await contactsApi.fetchIncomingRequests());
+  }, []);
+
+  const loadBlocked = useCallback(async () => {
+    setBlocked(await contactsApi.fetchBlocked());
   }, []);
 
   const refreshUnread = useCallback(async () => {
@@ -60,16 +86,18 @@ export default function ContactsScreen({ navigation }: Props) {
   useEffect(() => {
     loadContacts();
     loadGroups();
-  }, [loadContacts, loadGroups]);
+    loadBlocked();
+  }, [loadContacts, loadGroups, loadBlocked]);
 
-  // Unread badges (and the groups list, if you were just added to one) can
-  // change while this screen is backgrounded — recompute on focus.
+  // Requests/unread/groups can all change while this screen is backgrounded —
+  // recompute on focus rather than trying to push every possible update live.
   useFocusEffect(
     useCallback(() => {
       refreshUnread();
       refreshUnreadGroups();
       loadGroups();
-    }, [refreshUnread, refreshUnreadGroups, loadGroups])
+      loadRequests();
+    }, [refreshUnread, refreshUnreadGroups, loadGroups, loadRequests])
   );
 
   useEffect(() => {
@@ -113,16 +141,61 @@ export default function ContactsScreen({ navigation }: Props) {
 
   const handleAddContact = async () => {
     setError(null);
+    setInfo(null);
     try {
-      const contact = await contactsApi.addContact(newUsername.trim());
-      setContacts((prev) => [...prev, contact]);
+      const result = await contactsApi.addContact(newUsername.trim());
+      if (result.relationship_status === "accepted") {
+        setContacts((prev) => [...prev, result.contact]);
+      } else {
+        setInfo(`Заявка отправлена пользователю ${result.contact.display_name}`);
+      }
       setNewUsername("");
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? "Не удалось добавить контакт");
     }
   };
 
+  const handleAccept = async (request: ContactRequest) => {
+    const contact = await contactsApi.acceptRequest(request.id);
+    setRequests((prev) => prev.filter((r) => r.id !== request.id));
+    setContacts((prev) => [...prev, contact]);
+  };
+
+  const handleDecline = async (request: ContactRequest) => {
+    await contactsApi.declineRequest(request.id);
+    setRequests((prev) => prev.filter((r) => r.id !== request.id));
+  };
+
+  const confirmBlock = (contact: User) => {
+    Alert.alert("Заблокировать?", `${contact.display_name} больше не сможет вам писать.`, [
+      { text: "Отмена", style: "cancel" },
+      {
+        text: "Заблокировать",
+        style: "destructive",
+        onPress: async () => {
+          const blockedUser = await contactsApi.blockUser(contact.username);
+          setContacts((prev) => prev.filter((c) => c.id !== contact.id));
+          setBlocked((prev) => [...prev, blockedUser]);
+        },
+      },
+    ]);
+  };
+
+  const handleUnblock = async (blockedUser: BlockedUser) => {
+    await contactsApi.unblockUser(blockedUser.username);
+    setBlocked((prev) => prev.filter((b) => b.id !== blockedUser.id));
+  };
+
+  const handlePickStatus = (status: SettableStatus) => {
+    setMyStatus(status);
+    setPresence(status);
+    setStatusPickerVisible(false);
+  };
+
   const sections = [
+    ...(requests.length > 0
+      ? [{ title: "Заявки", data: requests.map((request): Row => ({ kind: "request", request })) }]
+      : []),
     {
       title: "Контакты",
       data: contacts.map((contact): Row => ({ kind: "contact", contact })),
@@ -131,15 +204,31 @@ export default function ContactsScreen({ navigation }: Props) {
       title: "Группы",
       data: groups.map((group): Row => ({ kind: "group", group })),
     },
+    ...(blocked.length > 0
+      ? [
+          {
+            title: "Заблокированные",
+            data: blocked.map((b): Row => ({ kind: "blocked", blocked: b })),
+          },
+        ]
+      : []),
   ];
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Привет, {user?.display_name}</Text>
-        <Pressable onPress={logout}>
-          <Text style={styles.logout}>Выйти</Text>
+        <Pressable style={styles.headerName} onPress={() => setStatusPickerVisible(true)}>
+          <View style={[styles.dot, { backgroundColor: statusColor[myStatus] }]} />
+          <Text style={styles.title}>{user?.display_name}</Text>
         </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable onPress={() => navigation.navigate("Profile")}>
+            <Text style={styles.link}>Профиль</Text>
+          </Pressable>
+          <Pressable onPress={logout}>
+            <Text style={styles.logout}>Выйти</Text>
+          </Pressable>
+        </View>
       </View>
       {!isConnected && <Text style={styles.warning}>Соединение потеряно, переподключение…</Text>}
 
@@ -156,12 +245,16 @@ export default function ContactsScreen({ navigation }: Props) {
         </Pressable>
       </View>
       {error && <Text style={styles.error}>{error}</Text>}
+      {info && <Text style={styles.info}>{info}</Text>}
 
       <SectionList
         sections={sections}
-        keyExtractor={(item) =>
-          item.kind === "contact" ? `c-${item.contact.id}` : `g-${item.group.id}`
-        }
+        keyExtractor={(item) => {
+          if (item.kind === "contact") return `c-${item.contact.id}`;
+          if (item.kind === "group") return `g-${item.group.id}`;
+          if (item.kind === "request") return `r-${item.request.id}`;
+          return `b-${item.blocked.id}`;
+        }}
         renderSectionHeader={({ section }) => (
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
@@ -173,12 +266,36 @@ export default function ContactsScreen({ navigation }: Props) {
           </View>
         )}
         renderItem={({ item }) => {
+          if (item.kind === "request") {
+            return (
+              <View style={styles.row}>
+                <View style={styles.rowText}>
+                  <Text style={styles.name}>{item.request.display_name}</Text>
+                  <Text style={styles.username}>@{item.request.username}</Text>
+                </View>
+                <Pressable
+                  style={[styles.smallButton, styles.acceptButton]}
+                  onPress={() => handleAccept(item.request)}
+                >
+                  <Text style={styles.smallButtonText}>✓</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.smallButton, styles.declineButton]}
+                  onPress={() => handleDecline(item.request)}
+                >
+                  <Text style={styles.smallButtonText}>✕</Text>
+                </Pressable>
+              </View>
+            );
+          }
+
           if (item.kind === "contact") {
             const unreadCount = unread[item.contact.id] ?? 0;
             return (
               <Pressable
                 style={styles.row}
                 onPress={() => navigation.navigate("Chat", { contact: item.contact })}
+                onLongPress={() => confirmBlock(item.contact)}
               >
                 <View
                   style={[styles.dot, { backgroundColor: statusColor[item.contact.status] }]}
@@ -196,33 +313,67 @@ export default function ContactsScreen({ navigation }: Props) {
             );
           }
 
-          const unreadCount = unreadGroups[item.group.id] ?? 0;
-          return (
-            <Pressable
-              style={styles.row}
-              onPress={() => navigation.navigate("GroupChat", { group: item.group })}
-            >
-              <View style={[styles.dot, styles.groupDot]} />
-              <View style={styles.rowText}>
-                <Text style={styles.name}>{item.group.name}</Text>
-                <Text style={styles.username}>{item.group.members.length} участников</Text>
-              </View>
-              {unreadCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{unreadCount}</Text>
+          if (item.kind === "group") {
+            const unreadCount = unreadGroups[item.group.id] ?? 0;
+            return (
+              <Pressable
+                style={styles.row}
+                onPress={() => navigation.navigate("GroupChat", { group: item.group })}
+              >
+                <View style={[styles.dot, styles.groupDot]} />
+                <View style={styles.rowText}>
+                  <Text style={styles.name}>{item.group.name}</Text>
+                  <Text style={styles.username}>{item.group.members.length} участников</Text>
                 </View>
-              )}
+                {unreadCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{unreadCount}</Text>
+                  </View>
+                )}
+              </Pressable>
+            );
+          }
+
+          return (
+            <Pressable style={styles.row} onPress={() => handleUnblock(item.blocked)}>
+              <View style={styles.rowText}>
+                <Text style={styles.name}>{item.blocked.display_name}</Text>
+                <Text style={styles.username}>@{item.blocked.username}</Text>
+              </View>
+              <Text style={styles.link}>разблокировать</Text>
             </Pressable>
           );
         }}
         renderSectionFooter={({ section }) =>
-          section.data.length === 0 ? (
-            <Text style={styles.empty}>
-              {section.title === "Группы" ? "Пока нет групп" : "Пока нет контактов"}
-            </Text>
+          section.data.length === 0 && section.title === "Группы" ? (
+            <Text style={styles.empty}>Пока нет групп</Text>
+          ) : section.data.length === 0 && section.title === "Контакты" ? (
+            <Text style={styles.empty}>Пока нет контактов</Text>
           ) : null
         }
       />
+
+      <Modal
+        visible={statusPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setStatusPickerVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setStatusPickerVisible(false)}>
+          <View style={styles.modalCard}>
+            {STATUS_OPTIONS.map((option) => (
+              <Pressable
+                key={option.value}
+                style={styles.modalOption}
+                onPress={() => handlePickStatus(option.value)}
+              >
+                <View style={[styles.dot, { backgroundColor: statusColor[option.value] }]} />
+                <Text style={styles.modalOptionText}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -230,7 +381,10 @@ export default function ContactsScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, paddingTop: 56, backgroundColor: "#fff" },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  headerName: { flexDirection: "row", alignItems: "center" },
+  headerActions: { flexDirection: "row", gap: 16 },
   title: { fontSize: 20, fontWeight: "700" },
+  link: { color: "#5c7cfa" },
   logout: { color: "#c92a2a" },
   warning: { color: "#f08c00", marginBottom: 8 },
   addRow: { flexDirection: "row", marginBottom: 8 },
@@ -252,6 +406,7 @@ const styles = StyleSheet.create({
   },
   addButtonText: { color: "#fff", fontSize: 22, lineHeight: 22 },
   error: { color: "#c92a2a", marginBottom: 8 },
+  info: { color: "#2f9e44", marginBottom: 8 },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -285,4 +440,29 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   empty: { textAlign: "center", color: "#868e96", paddingVertical: 12 },
+  smallButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  acceptButton: { backgroundColor: "#2f9e44" },
+  declineButton: { backgroundColor: "#c92a2a" },
+  smallButtonText: { color: "#fff", fontWeight: "700" },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingVertical: 8,
+    width: 240,
+  },
+  modalOption: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16 },
+  modalOptionText: { fontSize: 16 },
 });

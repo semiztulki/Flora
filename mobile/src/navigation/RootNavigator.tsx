@@ -9,6 +9,7 @@ import ContactsScreen from "../screens/ContactsScreen";
 import CreateGroupScreen from "../screens/CreateGroupScreen";
 import GroupChatScreen from "../screens/GroupChatScreen";
 import LoginScreen from "../screens/LoginScreen";
+import ProfileScreen from "../screens/ProfileScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import { RootStackParamList } from "../types";
 
@@ -37,6 +38,11 @@ export default function RootNavigator() {
               name="CreateGroup"
               component={CreateGroupScreen}
               options={{ title: "Новая группа" }}
+            />
+            <Stack.Screen
+              name="Profile"
+              component={ProfileScreen}
+              options={{ title: "Профиль" }}
             />
           </>
         ) : (

@@ -23,3 +23,14 @@ export async function login(username: string, password: string): Promise<AuthRes
   const { data } = await api.post<AuthResponse>("/auth/login", { username, password });
   return data;
 }
+
+export async function updateProfile(update: {
+  displayName?: string;
+  bio?: string;
+}): Promise<User> {
+  const { data } = await api.patch<User>("/auth/me", {
+    display_name: update.displayName,
+    bio: update.bio,
+  });
+  return data;
+}

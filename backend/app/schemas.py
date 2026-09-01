@@ -22,8 +22,14 @@ class UserOut(BaseModel):
     id: int
     username: str
     display_name: str
+    bio: str | None = None
     status: PresenceStatus
     last_seen: datetime
+
+
+class ProfileUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=64)
+    bio: str | None = Field(default=None, max_length=200)
 
 
 class TokenOut(BaseModel):
@@ -42,8 +48,31 @@ class ContactOut(BaseModel):
     id: int
     username: str
     display_name: str
+    bio: str | None = None
     status: PresenceStatus
     last_seen: datetime
+
+
+class ContactAddResult(BaseModel):
+    relationship_status: str  # "pending" | "accepted"
+    contact: ContactOut
+
+
+class ContactRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str
+    bio: str | None = None
+
+
+class BlockOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str
 
 
 class MessageOut(BaseModel):

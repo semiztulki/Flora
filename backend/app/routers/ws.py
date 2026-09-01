@@ -1,13 +1,20 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import decode_access_token
 from app.database import async_session
-from app.models import Contact, GroupMember, GroupMessage, Message, PresenceStatus, User
+from app.models import Block, Contact, GroupMember, GroupMessage, Message, PresenceStatus, User
 from app.websocket_manager import manager
+
+_SETTABLE_STATUSES = {
+    PresenceStatus.online.value,
+    PresenceStatus.away.value,
+    PresenceStatus.dnd.value,
+    PresenceStatus.invisible.value,
+}
 
 router = APIRouter(tags=["ws"])
 
@@ -48,10 +55,15 @@ async def _watchers_of(db: AsyncSession, user_id: int) -> list[int]:
 
 
 async def _broadcast_presence(db: AsyncSession, user: User) -> None:
+    # Invisible means actually connected, but everyone else sees "offline" —
+    # the whole point of the mode. Only the user's own client is told the truth.
+    visible_status = (
+        PresenceStatus.offline.value if user.status == PresenceStatus.invisible else user.status.value
+    )
     payload = {
         "type": "presence",
         "user_id": user.id,
-        "status": user.status.value,
+        "status": visible_status,
         "last_seen": user.last_seen.isoformat(),
     }
     for watcher_id in await _watchers_of(db, user.id):
@@ -101,11 +113,13 @@ async def _replay_offline_group_messages(db: AsyncSession, user_id: int) -> None
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str):
+async def websocket_endpoint(websocket: WebSocket, token: str, status: str = "online"):
     user_id = decode_access_token(token)
     if user_id is None:
         await websocket.close(code=4401)
         return
+
+    initial_status = PresenceStatus(status) if status in _SETTABLE_STATUSES else PresenceStatus.online
 
     async with async_session() as db:
         user = await _get_user(db, user_id)
@@ -115,7 +129,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 
         is_first_connection = await manager.connect(user_id, websocket)
         if is_first_connection:
-            user.status = PresenceStatus.online
+            # Passed as a query param (rather than always defaulting to online then
+            # flipping) so reconnecting while invisible/dnd doesn't flash "online"
+            # to watchers for the split second before the client can update it.
+            user.status = initial_status
             user.last_seen = datetime.now(timezone.utc)
             await db.commit()
             await db.refresh(user)
@@ -136,6 +153,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                     client_id = data.get("client_id")
                     if not recipient_id or not body:
                         await websocket.send_json({"type": "error", "detail": "Invalid message"})
+                        continue
+
+                    blocked = await db.execute(
+                        select(Block).where(
+                            or_(
+                                (Block.owner_id == recipient_id) & (Block.blocked_id == user_id),
+                                (Block.owner_id == user_id) & (Block.blocked_id == recipient_id),
+                            )
+                        )
+                    )
+                    if blocked.first() is not None:
+                        await websocket.send_json({"type": "error", "detail": "Blocked"})
                         continue
 
                     if client_id:
@@ -223,7 +252,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 
                 elif msg_type == "presence":
                     new_status = data.get("status")
-                    if new_status not in (PresenceStatus.online.value, PresenceStatus.away.value):
+                    if new_status not in _SETTABLE_STATUSES:
                         await websocket.send_json({"type": "error", "detail": "Invalid status"})
                         continue
                     user = await _get_user(db, user_id)
@@ -232,6 +261,27 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                     await db.commit()
                     await db.refresh(user)
                     await _broadcast_presence(db, user)
+
+                elif msg_type == "typing":
+                    # Ephemeral, not persisted — best-effort only to whoever's online.
+                    recipient_id = data.get("recipient_id")
+                    group_id = data.get("group_id")
+                    if recipient_id:
+                        await manager.send_to_user(
+                            recipient_id,
+                            {"type": "typing", "sender_id": user_id, "recipient_id": recipient_id},
+                        )
+                    elif group_id:
+                        members_result = await db.execute(
+                            select(GroupMember.user_id).where(
+                                GroupMember.group_id == group_id, GroupMember.user_id != user_id
+                            )
+                        )
+                        for (member_id,) in members_result.all():
+                            await manager.send_to_user(
+                                member_id,
+                                {"type": "typing", "sender_id": user_id, "group_id": group_id},
+                            )
 
                 elif msg_type == "ping":
                     await websocket.send_json({"type": "pong"})

@@ -11,6 +11,7 @@ interface AuthContextValue {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, displayName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateProfile: (update: { displayName?: string; bio?: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -57,8 +58,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const updateProfile = async (update: { displayName?: string; bio?: string }) => {
+    const updated = await authApi.updateProfile(update);
+    setUser(updated);
+  };
+
   const value = useMemo(
-    () => ({ user, token, isLoading, login, register, logout }),
+    () => ({ user, token, isLoading, login, register, logout, updateProfile }),
     [user, token, isLoading]
   );
 

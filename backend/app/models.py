@@ -14,7 +14,16 @@ def utcnow() -> datetime:
 class PresenceStatus(str, enum.Enum):
     online = "online"
     away = "away"
+    dnd = "dnd"
+    # Actually connected, but broadcast to everyone else as "offline" — see
+    # _broadcast_presence() in routers/ws.py for the masking.
+    invisible = "invisible"
     offline = "offline"
+
+
+class ContactStatus(str, enum.Enum):
+    pending = "pending"
+    accepted = "accepted"
 
 
 class User(Base):
@@ -24,6 +33,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(64))
     hashed_password: Mapped[str] = mapped_column(String(255))
+    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[PresenceStatus] = mapped_column(
         Enum(PresenceStatus), default=PresenceStatus.offline
     )
@@ -38,10 +48,26 @@ class Contact(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     contact_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    # 'pending' until the other side accepts, then flipped to 'accepted' on both
+    # the requester's row and a mirrored reverse row — classic ICQ authorization.
+    status: Mapped[ContactStatus] = mapped_column(Enum(ContactStatus), default=ContactStatus.pending)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id])
     contact: Mapped["User"] = relationship(foreign_keys=[contact_id])
+
+
+class Block(Base):
+    __tablename__ = "blocks"
+    __table_args__ = (UniqueConstraint("owner_id", "blocked_id", name="uq_owner_blocked"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    blocked_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    owner: Mapped["User"] = relationship(foreign_keys=[owner_id])
+    blocked: Mapped["User"] = relationship(foreign_keys=[blocked_id])
 
 
 class Message(Base):

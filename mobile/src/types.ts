@@ -1,9 +1,13 @@
-export type PresenceStatus = "online" | "away" | "offline";
+export type PresenceStatus = "online" | "away" | "dnd" | "invisible" | "offline";
+
+/** Statuses a user can explicitly set for themselves (offline isn't one of them). */
+export type SettableStatus = "online" | "away" | "dnd" | "invisible";
 
 export interface User {
   id: number;
   username: string;
   display_name: string;
+  bio: string | null;
   status: PresenceStatus;
   last_seen: string;
 }
@@ -46,10 +50,29 @@ export interface GroupMessage {
   created_at: string;
 }
 
+export interface ContactRequest {
+  id: number;
+  username: string;
+  display_name: string;
+  bio: string | null;
+}
+
+export interface ContactAddResult {
+  relationship_status: "pending" | "accepted";
+  contact: User;
+}
+
+export interface BlockedUser {
+  id: number;
+  username: string;
+  display_name: string;
+}
+
 export type ServerEvent =
   | ({ type: "message" } & Message)
   | ({ type: "group_message" } & GroupMessage)
   | { type: "presence"; user_id: number; status: PresenceStatus; last_seen: string }
+  | { type: "typing"; sender_id: number; recipient_id?: number; group_id?: number }
   | { type: "error"; detail: string }
   | { type: "pong" };
 
@@ -60,4 +83,5 @@ export type RootStackParamList = {
   Chat: { contact: User };
   GroupChat: { group: Group };
   CreateGroup: undefined;
+  Profile: undefined;
 };

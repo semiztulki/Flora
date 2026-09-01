@@ -27,13 +27,19 @@ import { generateClientId } from "../utils/uuid";
 
 type Props = NativeStackScreenProps<RootStackParamList, "GroupChat">;
 
+const TYPING_SEND_THROTTLE_MS = 3_000;
+const TYPING_EXPIRE_MS = 5_000;
+
 export default function GroupChatScreen({ route, navigation }: Props) {
   const { group } = route.params;
   const { user } = useAuth();
-  const { sendGroupMessage, onGroupMessage } = useSocket();
+  const { sendGroupMessage, onGroupMessage, sendTyping, onTyping } = useSocket();
   const [messages, setMessages] = useState<LocalGroupMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [typingUserIds, setTypingUserIds] = useState<number[]>([]);
   const listRef = useRef<FlatList<LocalGroupMessage>>(null);
+  const lastTypingSentAt = useRef(0);
+  const typingExpireTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
 
   const memberNames = useMemo(() => {
     const map: Record<number, string> = {};
@@ -41,9 +47,44 @@ export default function GroupChatScreen({ route, navigation }: Props) {
     return map;
   }, [group.members]);
 
+  const typingLabel = typingUserIds.length > 0 ? typingUserIds.map((id) => memberNames[id] ?? "кто-то").join(", ") + " печатает…" : null;
+
   useLayoutEffect(() => {
-    navigation.setOptions({ title: group.name });
-  }, [navigation, group]);
+    navigation.setOptions({ title: typingLabel ?? group.name });
+  }, [navigation, group, typingLabel]);
+
+  useEffect(() => {
+    return onTyping((senderId, _recipientId, groupId) => {
+      if (groupId !== group.id || senderId === user?.id) return;
+      setTypingUserIds((prev) => (prev.includes(senderId) ? prev : [...prev, senderId]));
+
+      const existing = typingExpireTimers.current.get(senderId);
+      if (existing) clearTimeout(existing);
+      typingExpireTimers.current.set(
+        senderId,
+        setTimeout(() => {
+          setTypingUserIds((prev) => prev.filter((id) => id !== senderId));
+          typingExpireTimers.current.delete(senderId);
+        }, TYPING_EXPIRE_MS)
+      );
+    });
+  }, [onTyping, group.id, user?.id]);
+
+  useEffect(() => {
+    const timers = typingExpireTimers.current;
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, []);
+
+  const handleDraftChange = (text: string) => {
+    setDraft(text);
+    const now = Date.now();
+    if (now - lastTypingSentAt.current > TYPING_SEND_THROTTLE_MS) {
+      lastTypingSentAt.current = now;
+      sendTyping({ groupId: group.id });
+    }
+  };
 
   const refreshFromLocalDb = useCallback(async () => {
     const rows = await getMessagesForGroup(group.id);
@@ -151,7 +192,7 @@ export default function GroupChatScreen({ route, navigation }: Props) {
           style={styles.input}
           placeholder="Сообщение"
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={handleDraftChange}
           multiline
         />
         <Pressable style={styles.sendButton} onPress={handleSend} disabled={!draft.trim()}>
