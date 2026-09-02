@@ -1,20 +1,12 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  Alert,
-  AlertButton,
-  Pressable,
-  SectionList,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Pressable, SectionList, StyleSheet, Text, TextInput, View } from "react-native";
 
 import * as contactsApi from "../api/contacts";
 import * as groupsApi from "../api/groups";
 import ContactAvatar from "../components/ContactAvatar";
+import ContextMenu, { ContextMenuSection } from "../components/ContextMenu";
 import StatusPickerModal, { StatusUpdate } from "../components/StatusPickerModal";
 import TextPromptModal from "../components/TextPromptModal";
 import { useAuth } from "../context/AuthContext";
@@ -22,7 +14,7 @@ import { useSocket } from "../context/SocketContext";
 import { clearMessagesForPeer, getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
 import { getUnreadGroupCounts, upsertConfirmedGroupMessage } from "../db/groupMessages";
 import { BlockedUser, ContactRequest, Group, RootStackParamList, SettableStatus, User } from "../types";
-import { statusColor } from "../utils/presence";
+import { statusColor, statusLabel } from "../utils/presence";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
 
@@ -56,6 +48,7 @@ export default function ContactsScreen({ navigation }: Props) {
   const [myNote, setMyNote] = useState("");
   const [statusPickerVisible, setStatusPickerVisible] = useState(false);
   const [renamingContact, setRenamingContact] = useState<User | null>(null);
+  const [contextMenuContact, setContextMenuContact] = useState<User | null>(null);
 
   const loadContacts = useCallback(async () => {
     setContacts(await contactsApi.fetchContacts());
@@ -252,44 +245,66 @@ export default function ContactsScreen({ navigation }: Props) {
   // Deliberately two separate actions, not one instead of the other: you
   // block someone for any reason (an unwanted admirer, say), you report
   // someone because their behaviour needs a moderator's attention.
-  const handleContactLongPress = (contact: User) => {
+  const contactMenuSections = (contact: User): ContextMenuSection[] => {
     // Reporting/blocking/toggling your own invisible-visibility makes no
     // sense on yourself — the server rejects report/block anyway, but
     // there's no reason to show any of the three. Clearing the dialog and
     // removing the contact still make sense even for your own notes-to-self.
     const isSelf = contact.id === user?.id;
-    const options: AlertButton[] = [{ text: "Отмена", style: "cancel" }];
+    const sections: ContextMenuSection[] = [];
+
     if (!isSelf) {
-      options.push({ text: "Профиль", onPress: () => navigation.navigate("PublicProfile", { uin: contact.uin }) });
-      options.push({
-        text: contact.local_nickname ? "Переименовать для себя" : "Подписать для себя",
-        onPress: () => setRenamingContact(contact),
+      sections.push({
+        items: [
+          { label: "Профиль", onPress: () => navigation.navigate("PublicProfile", { uin: contact.uin }) },
+        ],
       });
-      options.push({
-        text: contact.visible_when_invisible
-          ? "Не показывать ей(ему) мой инвиз"
-          : "Показывать ей(ему) мой инвиз",
-        onPress: () => handleToggleInvisibleVisibility(contact),
+      sections.push({
+        title: "Контакт",
+        items: [
+          {
+            label: contact.local_nickname ? "Переименовать для себя" : "Подписать для себя",
+            onPress: () => setRenamingContact(contact),
+          },
+          {
+            label: contact.visible_when_invisible
+              ? "Не показывать ей(ему) мой инвиз"
+              : "Показывать ей(ему) мой инвиз",
+            onPress: () => handleToggleInvisibleVisibility(contact),
+          },
+        ],
       });
     }
-    options.push({ text: "Очистить диалог", onPress: () => handleClearDialog(contact) });
-    if (!isSelf) {
-      options.push({
-        text: "Пожаловаться",
-        onPress: () =>
-          navigation.navigate("Report", {
-            reportedUin: contact.uin,
-            reportedDisplayName: contact.display_name,
-          }),
-      });
-      options.push({ text: "Заблокировать", style: "destructive", onPress: () => confirmBlock(contact) });
-    }
-    options.push({
-      text: "Удалить из контактов",
-      style: "destructive",
-      onPress: () => handleRemoveContact(contact),
+
+    sections.push({
+      items: [
+        { label: "Очистить диалог", onPress: () => handleClearDialog(contact) },
+        ...(!isSelf
+          ? [
+              {
+                label: "Пожаловаться",
+                onPress: () =>
+                  navigation.navigate("Report", {
+                    reportedUin: contact.uin,
+                    reportedDisplayName: contact.display_name,
+                  }),
+              },
+              {
+                label: "Заблокировать",
+                destructive: true,
+                onPress: () => confirmBlock(contact),
+              },
+            ]
+          : []),
+        {
+          label: "Удалить из контактов",
+          destructive: true,
+          onPress: () => handleRemoveContact(contact),
+        },
+      ],
     });
-    Alert.alert(contactDisplayName(contact), undefined, options);
+
+    return sections;
   };
 
   const handleUnblock = async (blockedUser: BlockedUser) => {
@@ -337,41 +352,43 @@ export default function ContactsScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable style={styles.headerName} onPress={() => setStatusPickerVisible(true)}>
-          <View
-            style={[
-              styles.dot,
-              { backgroundColor: statusColor[myStatus] },
-              myInvisible && styles.dotInvisibleRing,
-            ]}
-          />
-          <View>
-            <Text style={styles.title}>{user?.display_name}</Text>
-            {myNote.length > 0 && (
-              <Text style={styles.headerNote} numberOfLines={1}>
-                {myNote}
-              </Text>
-            )}
-          </View>
-        </Pressable>
-        <View style={styles.headerActions}>
-          <Pressable onPress={() => navigation.navigate("Search")}>
-            <Text style={styles.link}>🔍</Text>
+      <View style={styles.titleBar}>
+        <Text style={styles.titleBarText}>🌸 Flora — {user?.display_name}</Text>
+        <View style={styles.toolbar}>
+          <Pressable style={styles.toolbarButton} onPress={() => navigation.navigate("Search")}>
+            <Text style={styles.toolbarIcon}>🔍</Text>
           </Pressable>
           {user?.is_admin && (
-            <Pressable onPress={() => navigation.navigate("Admin")}>
-              <Text style={styles.link}>🛡️</Text>
+            <Pressable style={styles.toolbarButton} onPress={() => navigation.navigate("Admin")}>
+              <Text style={styles.toolbarIcon}>🛡️</Text>
             </Pressable>
           )}
-          <Pressable onPress={() => navigation.navigate("Profile")}>
-            <Text style={styles.link}>Профиль</Text>
+          <Pressable style={styles.toolbarButton} onPress={() => navigation.navigate("Profile")}>
+            <Text style={styles.toolbarIcon}>👤</Text>
           </Pressable>
-          <Pressable onPress={logout}>
-            <Text style={styles.logout}>Выйти</Text>
+          <Pressable style={styles.toolbarButton} onPress={logout}>
+            <Text style={styles.toolbarIcon}>🚪</Text>
           </Pressable>
         </View>
       </View>
+
+      <Pressable style={styles.statusPill} onPress={() => setStatusPickerVisible(true)}>
+        <View
+          style={[
+            styles.statusPillDot,
+            { backgroundColor: statusColor[myStatus] },
+            myInvisible && styles.dotInvisibleRing,
+          ]}
+        />
+        <Text style={styles.statusPillText} numberOfLines={1}>
+          {statusLabel[myStatus]}
+          {myInvisible ? " (невидимый)" : ""}
+          {myNote.length > 0 ? ` · ${myNote}` : ""}
+        </Text>
+        <Text style={styles.statusPillChevron}>▾</Text>
+      </Pressable>
+
+      <View style={styles.body}>
       {!isConnected && <Text style={styles.warning}>Соединение потеряно, переподключение…</Text>}
 
       <View style={styles.addRow}>
@@ -400,7 +417,7 @@ export default function ContactsScreen({ navigation }: Props) {
         }}
         renderSectionHeader={({ section }) => (
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <Text style={styles.sectionTitle}>▾ {section.title?.toUpperCase()}</Text>
             {section.title === "Группы" && (
               <Pressable onPress={() => navigation.navigate("CreateGroup")}>
                 <Text style={styles.sectionAction}>+ создать</Text>
@@ -439,7 +456,7 @@ export default function ContactsScreen({ navigation }: Props) {
               <Pressable
                 style={styles.row}
                 onPress={() => navigation.navigate("Chat", { contact: item.contact })}
-                onLongPress={() => handleContactLongPress(item.contact)}
+                onLongPress={() => setContextMenuContact(item.contact)}
               >
                 {!isSelf ? (
                   <Pressable
@@ -516,6 +533,7 @@ export default function ContactsScreen({ navigation }: Props) {
           ) : null
         }
       />
+      </View>
 
       <StatusPickerModal
         visible={statusPickerVisible}
@@ -534,20 +552,63 @@ export default function ContactsScreen({ navigation }: Props) {
         onCancel={() => setRenamingContact(null)}
         onConfirm={handleRenameContact}
       />
+
+      <ContextMenu
+        visible={contextMenuContact !== null}
+        onClose={() => setContextMenuContact(null)}
+        title={contextMenuContact ? contactDisplayName(contextMenuContact) : undefined}
+        sections={contextMenuContact ? contactMenuSections(contextMenuContact) : []}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 56, backgroundColor: "#fff" },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  headerName: { flexDirection: "row", alignItems: "center" },
-  headerActions: { flexDirection: "row", gap: 16 },
-  title: { fontSize: 20, fontWeight: "700" },
+  container: { flex: 1, backgroundColor: "#f6fbf6" },
+  // Classic-ICQ-flavoured chrome: a title bar up top, a status "dropdown"
+  // pill right below it (matching how the old client always put a nickname
+  // header and a status selector above the actual contact tree), toolbar
+  // icons styled as small raised buttons instead of plain text links.
+  titleBar: {
+    backgroundColor: "#dff0d8",
+    borderBottomWidth: 1,
+    borderBottomColor: "#b9dfae",
+    paddingTop: 56,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  titleBarText: { fontSize: 16, fontWeight: "700", color: "#1e7a33", flexShrink: 1 },
+  toolbar: { flexDirection: "row", gap: 6 },
+  toolbarButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 6,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#b9dfae",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toolbarIcon: { fontSize: 14 },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f3f5",
+  },
+  statusPillDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  statusPillText: { flex: 1, fontSize: 14, fontWeight: "600", color: "#212529" },
+  statusPillChevron: { color: "#868e96", marginLeft: 8 },
+  body: { flex: 1, paddingHorizontal: 16 },
   link: { color: "#5c7cfa" },
-  logout: { color: "#c92a2a" },
-  warning: { color: "#f08c00", marginBottom: 8 },
-  addRow: { flexDirection: "row", marginBottom: 8 },
+  warning: { color: "#f08c00", marginTop: 8 },
+  addRow: { flexDirection: "row", marginTop: 12, marginBottom: 8 },
   input: {
     flex: 1,
     borderWidth: 1,
@@ -571,12 +632,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#fff",
-    paddingTop: 12,
-    paddingBottom: 4,
+    backgroundColor: "#eaf7ea",
+    borderRadius: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginTop: 10,
+    marginBottom: 2,
   },
-  sectionTitle: { fontSize: 13, fontWeight: "700", color: "#868e96", textTransform: "uppercase" },
-  sectionAction: { color: "#2f9e44", fontWeight: "600" },
+  sectionTitle: { fontSize: 12, fontWeight: "700", color: "#1e7a33" },
+  sectionAction: { color: "#2f9e44", fontWeight: "600", fontSize: 12 },
   row: {
     flexDirection: "row",
     alignItems: "center",

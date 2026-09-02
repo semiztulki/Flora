@@ -59,7 +59,7 @@ export interface User {
 
 /** The subset of a user's fields a chat screen actually needs — lets both a
  * full contacts-list User and a slimmer PublicProfile navigate to Chat. */
-export type ChatPeer = Pick<User, "id" | "uin" | "display_name" | "status">;
+export type ChatPeer = Pick<User, "id" | "uin" | "display_name" | "status" | "avatar">;
 
 /** Someone else's profile, the way GET /profiles/{uin} is allowed to show it
  * to you — status/status_note already masked for their invisible mode. */

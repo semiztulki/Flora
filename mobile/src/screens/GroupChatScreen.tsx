@@ -65,6 +65,11 @@ export default function GroupChatScreen({ route, navigation }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const listRef = useRef<FlatList<LocalGroupMessage>>(null);
+  // Same reasoning as ChatScreen: inverted + reversed data is the robust way
+  // to keep a chat pinned to its newest message (scrollToEnd on a plain list
+  // is unreliable once there's enough content that not everything is
+  // rendered up front).
+  const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
   const lastTypingSentAt = useRef(0);
   const typingExpireTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
 
@@ -279,45 +284,45 @@ export default function GroupChatScreen({ route, navigation }: Props) {
     >
       <FlatList
         ref={listRef}
-        data={messages}
+        inverted
+        data={reversedMessages}
         keyExtractor={(item) => String(item.localId)}
         contentContainerStyle={styles.list}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => {
           const isMine = item.senderId === user?.id;
+          const time = new Date(item.createdAt).toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
           return (
             <Pressable
-              style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}
+              style={styles.transcriptLine}
               onLongPress={() => handleMessageLongPress(item)}
             >
-              {!isMine && (
-                <Text style={styles.senderName}>
-                  {memberNames[item.senderId] ?? "Участник"}
+              <Text style={styles.transcriptHeader}>
+                <Text style={isMine ? styles.senderNameMine : styles.senderNameTheirs}>
+                  {isMine ? user?.display_name : memberNames[item.senderId] ?? "Участник"}
                 </Text>
-              )}
+                <Text style={styles.timestamp}> ({time}){item.status === "pending" ? " · отправка…" : ""}:</Text>
+              </Text>
               {item.attachment && (
                 <AttachmentImage attachment={item.attachment} onPress={setViewerUri} />
               )}
-              {item.body.length > 0 && (
-                <Text style={isMine ? styles.bubbleTextMine : styles.bubbleTextTheirs}>
-                  {item.body}
-                </Text>
-              )}
-              {isMine && item.status === "pending" && (
-                <Text style={styles.pendingLabel}>отправка…</Text>
-              )}
+              {item.body.length > 0 && <Text style={styles.messageBody}>{item.body}</Text>}
             </Pressable>
           );
         }}
       />
-      <View style={styles.inputRow}>
-        <Pressable style={styles.attachButton} onPress={handleAttachImage} disabled={isUploading}>
+      <View style={styles.toolbarRow}>
+        <Pressable style={styles.toolbarButton} onPress={handleAttachImage} disabled={isUploading}>
           {isUploading ? (
             <ActivityIndicator size="small" color="#2f9e44" />
           ) : (
-            <Text style={styles.attachButtonText}>📎</Text>
+            <Text style={styles.toolbarIcon}>📎</Text>
           )}
         </Pressable>
+      </View>
+      <View style={styles.inputRow}>
         <TextInput
           style={styles.input}
           placeholder="Сообщение"
@@ -326,7 +331,7 @@ export default function GroupChatScreen({ route, navigation }: Props) {
           multiline
         />
         <Pressable style={styles.sendButton} onPress={handleSend} disabled={!draft.trim()}>
-          <Text style={styles.sendButtonText}>Отпр.</Text>
+          <Text style={styles.sendButtonText}>Send</Text>
         </Pressable>
       </View>
       <ImageViewerModal uri={viewerUri} onClose={() => setViewerUri(null)} />
@@ -337,43 +342,51 @@ export default function GroupChatScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   list: { padding: 16 },
-  bubble: { maxWidth: "80%", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8 },
-  bubbleMine: { backgroundColor: "#d3f2dd", alignSelf: "flex-end" },
-  bubbleTheirs: { backgroundColor: "#2f9e44", alignSelf: "flex-start" },
-  bubbleTextMine: { color: "#212529" },
-  bubbleTextTheirs: { color: "#fff" },
-  senderName: { fontSize: 12, fontWeight: "700", color: "#eaffef", marginBottom: 2 },
-  pendingLabel: { color: "#5c8a6a", fontSize: 11, marginTop: 2 },
-  inputRow: {
+  transcriptLine: { marginBottom: 10 },
+  transcriptHeader: { fontSize: 13 },
+  senderNameMine: { fontWeight: "700", color: "#1864ab" },
+  senderNameTheirs: { fontWeight: "700", color: "#d9480f" },
+  timestamp: { color: "#868e96" },
+  messageBody: { fontSize: 15, color: "#212529", marginTop: 2 },
+  toolbarRow: {
     flexDirection: "row",
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "#f1f3f5",
-    alignItems: "flex-end",
   },
-  attachButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  toolbarButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#b9dfae",
+    backgroundColor: "#f6fbf6",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 4,
   },
-  attachButtonText: { fontSize: 20 },
+  toolbarIcon: { fontSize: 16 },
+  inputRow: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 8,
+    alignItems: "flex-end",
+  },
   input: {
     flex: 1,
     borderWidth: 1,
     borderColor: "#ccc",
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    borderRadius: 8,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     marginRight: 8,
     maxHeight: 100,
   },
   sendButton: {
     backgroundColor: "#2f9e44",
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    borderRadius: 8,
+    paddingHorizontal: 20,
     paddingVertical: 10,
   },
   sendButtonText: { color: "#fff", fontWeight: "600" },

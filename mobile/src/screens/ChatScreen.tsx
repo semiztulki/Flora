@@ -17,6 +17,7 @@ import {
 import * as attachmentsApi from "../api/attachments";
 import * as messagesApi from "../api/messages";
 import AttachmentImage from "../components/AttachmentImage";
+import ContactAvatar from "../components/ContactAvatar";
 import ImageViewerModal from "../components/ImageViewerModal";
 import { MAX_ATTACHMENT_BYTES } from "../config";
 import { useAuth } from "../context/AuthContext";
@@ -86,10 +87,8 @@ export default function ChatScreen({ route, navigation }: Props) {
   const typingExpireTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
-    navigation.setOptions({
-      title: isContactTyping ? `${contact.display_name} печатает…` : contact.display_name,
-    });
-  }, [navigation, contact, isContactTyping]);
+    navigation.setOptions({ title: contact.display_name });
+  }, [navigation, contact]);
 
   // The contact param is a snapshot from whenever their row was tapped on
   // the Contacts screen — keep the status live while the chat is open
@@ -325,11 +324,13 @@ export default function ChatScreen({ route, navigation }: Props) {
         onPress={() => navigation.navigate("PublicProfile", { uin: contact.uin })}
         hitSlop={8}
       >
-        <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
-        <Text style={styles.statusText}>
-          {statusLabel[contactStatus]}
-          {contactNote ? ` · ${contactNote}` : ""}
-        </Text>
+        <ContactAvatar avatar={contact.avatar} label={contact.display_name} size={32} />
+        <View style={styles.statusTextCol}>
+          <Text style={styles.statusText}>
+            {statusLabel[contactStatus]}
+            {contactNote ? ` · ${contactNote}` : ""}
+          </Text>
+        </View>
         <Text style={styles.statusChevron}>›  профиль</Text>
       </Pressable>
       <FlatList
@@ -357,34 +358,42 @@ export default function ChatScreen({ route, navigation }: Props) {
           // SocketContext) instead of always showing as your own sent bubble.
           const isSelfChatTestMode = contact.id === user?.id;
           const isMine = item.senderId === user?.id && !isSelfChatTestMode;
+          const time = new Date(item.createdAt).toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
           return (
             <Pressable
-              style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}
+              style={styles.transcriptLine}
               onLongPress={() => handleMessageLongPress(item)}
             >
+              <Text style={styles.transcriptHeader}>
+                <Text style={isMine ? styles.senderNameMine : styles.senderNameTheirs}>
+                  {isMine ? user?.display_name : contact.display_name}
+                </Text>
+                <Text style={styles.timestamp}> ({time}){item.status === "pending" ? " · отправка…" : ""}:</Text>
+              </Text>
               {item.attachment && (
                 <AttachmentImage attachment={item.attachment} onPress={setViewerUri} />
               )}
-              {item.body.length > 0 && (
-                <Text style={isMine ? styles.bubbleTextMine : styles.bubbleTextTheirs}>
-                  {item.body}
-                </Text>
-              )}
-              {isMine && item.status === "pending" && (
-                <Text style={styles.pendingLabel}>отправка…</Text>
-              )}
+              {item.body.length > 0 && <Text style={styles.messageBody}>{item.body}</Text>}
             </Pressable>
           );
         }}
       />
-      <View style={styles.inputRow}>
-        <Pressable style={styles.attachButton} onPress={handleAttachImage} disabled={isUploading}>
+      {isContactTyping && (
+        <Text style={styles.typingIndicator}>{contact.display_name} печатает…</Text>
+      )}
+      <View style={styles.toolbarRow}>
+        <Pressable style={styles.toolbarButton} onPress={handleAttachImage} disabled={isUploading}>
           {isUploading ? (
             <ActivityIndicator size="small" color="#2f9e44" />
           ) : (
-            <Text style={styles.attachButtonText}>📎</Text>
+            <Text style={styles.toolbarIcon}>📎</Text>
           )}
         </Pressable>
+      </View>
+      <View style={styles.inputRow}>
         <TextInput
           style={styles.input}
           placeholder="Сообщение"
@@ -393,7 +402,7 @@ export default function ChatScreen({ route, navigation }: Props) {
           multiline
         />
         <Pressable style={styles.sendButton} onPress={handleSend} disabled={!draft.trim()}>
-          <Text style={styles.sendButtonText}>Отпр.</Text>
+          <Text style={styles.sendButtonText}>Send</Text>
         </Pressable>
       </View>
       <ImageViewerModal uri={viewerUri} onClose={() => setViewerUri(null)} />
@@ -403,54 +412,74 @@ export default function ChatScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  // Classic-ICQ-style chat chrome: a small header strip with the contact's
+  // portrait (rather than a chat-bubble UI), and a plain scrolling
+  // transcript — "Name (HH:MM): message" — instead of colored bubbles.
   statusRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#eaf7ea",
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f3f5",
+    borderBottomColor: "#b9dfae",
   },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  statusText: { fontSize: 12, color: "#868e96" },
+  statusTextCol: { flex: 1, marginLeft: 10 },
+  statusText: { fontSize: 12, color: "#495057" },
   statusChevron: { fontSize: 11, color: "#5c7cfa", marginLeft: 8 },
   list: { padding: 16 },
-  bubble: { maxWidth: "80%", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8 },
-  bubbleMine: { backgroundColor: "#d3f2dd", alignSelf: "flex-end" },
-  bubbleTheirs: { backgroundColor: "#2f9e44", alignSelf: "flex-start" },
-  bubbleTextMine: { color: "#212529" },
-  bubbleTextTheirs: { color: "#fff" },
-  pendingLabel: { color: "#5c8a6a", fontSize: 11, marginTop: 2 },
-  inputRow: {
+  transcriptLine: { marginBottom: 10 },
+  transcriptHeader: { fontSize: 13 },
+  senderNameMine: { fontWeight: "700", color: "#1864ab" },
+  senderNameTheirs: { fontWeight: "700", color: "#d9480f" },
+  timestamp: { color: "#868e96" },
+  messageBody: { fontSize: 15, color: "#212529", marginTop: 2 },
+  typingIndicator: {
+    fontSize: 12,
+    fontStyle: "italic",
+    color: "#868e96",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  toolbarRow: {
     flexDirection: "row",
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "#f1f3f5",
-    alignItems: "flex-end",
   },
-  attachButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  toolbarButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#b9dfae",
+    backgroundColor: "#f6fbf6",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 4,
   },
-  attachButtonText: { fontSize: 20 },
+  toolbarIcon: { fontSize: 16 },
+  inputRow: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 8,
+    alignItems: "flex-end",
+  },
   input: {
     flex: 1,
     borderWidth: 1,
     borderColor: "#ccc",
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    borderRadius: 8,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     marginRight: 8,
     maxHeight: 100,
   },
   sendButton: {
     backgroundColor: "#2f9e44",
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    borderRadius: 8,
+    paddingHorizontal: 20,
     paddingVertical: 10,
   },
   sendButtonText: { color: "#fff", fontWeight: "600" },
