@@ -54,3 +54,15 @@ export async function setVisibleWhenInvisible(
   });
   return data;
 }
+
+/** Your own private label for this contact ("Лена — реставратор") — never
+ * visible to them or anyone else. Pass null to clear it. */
+export async function setLocalNickname(
+  contactId: number,
+  nickname: string | null
+): Promise<User> {
+  const { data } = await api.patch<User>(`/contacts/${contactId}/nickname`, {
+    local_nickname: nickname,
+  });
+  return data;
+}

@@ -12,7 +12,8 @@ interface AuthContextValue {
   login: (uin: number, password: string) => Promise<void>;
   register: (displayName: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
-  updateProfile: (update: { displayName?: string; bio?: string }) => Promise<void>;
+  updateProfile: (update: authApi.ProfileUpdateInput) => Promise<void>;
+  updateAvatar: (attachmentId: number | null) => Promise<void>;
   reportBanned: (info: BanInfo) => void;
   clearBanInfo: () => void;
 }
@@ -83,8 +84,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
-  const updateProfile = async (update: { displayName?: string; bio?: string }) => {
+  const updateProfile = async (update: authApi.ProfileUpdateInput) => {
     const updated = await authApi.updateProfile(update);
+    setUser(updated);
+  };
+
+  const updateAvatar = async (attachmentId: number | null) => {
+    const updated = await authApi.updateAvatar(attachmentId);
     setUser(updated);
   };
 
@@ -110,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       logout,
       updateProfile,
+      updateAvatar,
       reportBanned,
       clearBanInfo,
     }),

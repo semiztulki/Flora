@@ -12,6 +12,7 @@ import CreateGroupScreen from "../screens/CreateGroupScreen";
 import GroupChatScreen from "../screens/GroupChatScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
+import PublicProfileScreen from "../screens/PublicProfileScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ReportScreen from "../screens/ReportScreen";
 import SearchScreen from "../screens/SearchScreen";
@@ -46,6 +47,11 @@ export default function RootNavigator() {
             <Stack.Screen
               name="Profile"
               component={ProfileScreen}
+              options={{ title: "Профиль" }}
+            />
+            <Stack.Screen
+              name="PublicProfile"
+              component={PublicProfileScreen}
               options={{ title: "Профиль" }}
             />
             <Stack.Screen

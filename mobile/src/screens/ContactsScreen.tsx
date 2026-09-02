@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   AlertButton,
-  Modal,
   Pressable,
   SectionList,
   StyleSheet,
@@ -15,6 +14,8 @@ import {
 
 import * as contactsApi from "../api/contacts";
 import * as groupsApi from "../api/groups";
+import StatusPickerModal, { StatusUpdate } from "../components/StatusPickerModal";
+import TextPromptModal from "../components/TextPromptModal";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { clearMessagesForPeer, getUnreadCounts, upsertConfirmedMessage } from "../db/messages";
@@ -30,12 +31,11 @@ type Row =
   | { kind: "group"; group: Group }
   | { kind: "blocked"; blocked: BlockedUser };
 
-const STATUS_OPTIONS: { value: SettableStatus; label: string }[] = [
-  { value: "online", label: "В сети" },
-  { value: "away", label: "Отошёл" },
-  { value: "dnd", label: "Не беспокоить" },
-  { value: "invisible", label: "Невидимка" },
-];
+// Your own private label for a contact, if you've set one ("Лена —
+// реставратор") — falls back to their nickname otherwise.
+function contactDisplayName(contact: User): string {
+  return contact.local_nickname || contact.display_name;
+}
 
 export default function ContactsScreen({ navigation }: Props) {
   const { user, logout } = useAuth();
@@ -50,8 +50,11 @@ export default function ContactsScreen({ navigation }: Props) {
   const [newUin, setNewUin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [myStatus, setMyStatus] = useState<SettableStatus>("online");
+  const [myStatus, setMyStatus] = useState<SettableStatus>("available");
+  const [myInvisible, setMyInvisible] = useState(false);
+  const [myNote, setMyNote] = useState("");
   const [statusPickerVisible, setStatusPickerVisible] = useState(false);
+  const [renamingContact, setRenamingContact] = useState<User | null>(null);
 
   const loadContacts = useCallback(async () => {
     setContacts(await contactsApi.fetchContacts());
@@ -84,6 +87,16 @@ export default function ContactsScreen({ navigation }: Props) {
     loadBlocked();
   }, [loadContacts, loadGroups, loadBlocked]);
 
+  // Seed the header indicator from whatever the server already has on record
+  // (e.g. a status set from another device, or restored after app restart)
+  // rather than always starting the picker back at "available".
+  useEffect(() => {
+    if (!user) return;
+    setMyStatus(user.status === "offline" ? "available" : user.status);
+    setMyInvisible(user.invisible);
+    setMyNote(user.status_note ?? "");
+  }, [user]);
+
   // Requests/unread/groups can all change while this screen is backgrounded —
   // recompute on focus rather than trying to push every possible update live.
   useFocusEffect(
@@ -96,9 +109,11 @@ export default function ContactsScreen({ navigation }: Props) {
   );
 
   useEffect(() => {
-    return onPresence((userId, status, lastSeen) => {
+    return onPresence((userId, status, lastSeen, note) => {
       setContacts((prev) =>
-        prev.map((c) => (c.id === userId ? { ...c, status, last_seen: lastSeen } : c))
+        prev.map((c) =>
+          c.id === userId ? { ...c, status, last_seen: lastSeen, status_note: note } : c
+        )
       );
     });
   }, [onPresence]);
@@ -244,6 +259,11 @@ export default function ContactsScreen({ navigation }: Props) {
     const isSelf = contact.id === user?.id;
     const options: AlertButton[] = [{ text: "Отмена", style: "cancel" }];
     if (!isSelf) {
+      options.push({ text: "Профиль", onPress: () => navigation.navigate("PublicProfile", { uin: contact.uin }) });
+      options.push({
+        text: contact.local_nickname ? "Переименовать для себя" : "Подписать для себя",
+        onPress: () => setRenamingContact(contact),
+      });
       options.push({
         text: contact.visible_when_invisible
           ? "Не показывать ей(ему) мой инвиз"
@@ -268,7 +288,7 @@ export default function ContactsScreen({ navigation }: Props) {
       style: "destructive",
       onPress: () => handleRemoveContact(contact),
     });
-    Alert.alert(contact.display_name, undefined, options);
+    Alert.alert(contactDisplayName(contact), undefined, options);
   };
 
   const handleUnblock = async (blockedUser: BlockedUser) => {
@@ -276,10 +296,20 @@ export default function ContactsScreen({ navigation }: Props) {
     setBlocked((prev) => prev.filter((b) => b.id !== blockedUser.id));
   };
 
-  const handlePickStatus = (status: SettableStatus) => {
-    setMyStatus(status);
-    setPresence(status);
-    setStatusPickerVisible(false);
+  const handleApplyStatus = (update: StatusUpdate) => {
+    setMyStatus(update.status);
+    setMyInvisible(update.invisible);
+    setMyNote(update.note);
+    setPresence(update);
+  };
+
+  const handleRenameContact = async (nickname: string) => {
+    if (!renamingContact) return;
+    const updated = await contactsApi.setLocalNickname(renamingContact.id, nickname || null);
+    setContacts((prev) =>
+      prev.map((c) => (c.id === renamingContact.id ? { ...c, local_nickname: updated.local_nickname } : c))
+    );
+    setRenamingContact(null);
   };
 
   const sections = [
@@ -308,8 +338,21 @@ export default function ContactsScreen({ navigation }: Props) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.headerName} onPress={() => setStatusPickerVisible(true)}>
-          <View style={[styles.dot, { backgroundColor: statusColor[myStatus] }]} />
-          <Text style={styles.title}>{user?.display_name}</Text>
+          <View
+            style={[
+              styles.dot,
+              { backgroundColor: statusColor[myStatus] },
+              myInvisible && styles.dotInvisibleRing,
+            ]}
+          />
+          <View>
+            <Text style={styles.title}>{user?.display_name}</Text>
+            {myNote.length > 0 && (
+              <Text style={styles.headerNote} numberOfLines={1}>
+                {myNote}
+              </Text>
+            )}
+          </View>
         </Pressable>
         <View style={styles.headerActions}>
           <Pressable onPress={() => navigation.navigate("Search")}>
@@ -401,7 +444,7 @@ export default function ContactsScreen({ navigation }: Props) {
                 />
                 <View style={styles.rowText}>
                   <Text style={styles.name}>
-                    {item.contact.display_name}
+                    {contactDisplayName(item.contact)}
                     {item.contact.id === user?.id ? " (Заметки для себя)" : ""}
                   </Text>
                   <Text style={styles.subtitle}>№ {item.contact.uin}</Text>
@@ -455,27 +498,23 @@ export default function ContactsScreen({ navigation }: Props) {
         }
       />
 
-      <Modal
+      <StatusPickerModal
         visible={statusPickerVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setStatusPickerVisible(false)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setStatusPickerVisible(false)}>
-          <View style={styles.modalCard}>
-            {STATUS_OPTIONS.map((option) => (
-              <Pressable
-                key={option.value}
-                style={styles.modalOption}
-                onPress={() => handlePickStatus(option.value)}
-              >
-                <View style={[styles.dot, { backgroundColor: statusColor[option.value] }]} />
-                <Text style={styles.modalOptionText}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
+        onClose={() => setStatusPickerVisible(false)}
+        currentStatus={myStatus}
+        currentInvisible={myInvisible}
+        currentNote={myNote}
+        onApply={handleApplyStatus}
+      />
+
+      <TextPromptModal
+        visible={renamingContact !== null}
+        title={`Подпись для ${renamingContact?.display_name ?? ""}`}
+        placeholder="Например: Лена — реставратор"
+        initialValue={renamingContact?.local_nickname ?? ""}
+        onCancel={() => setRenamingContact(null)}
+        onConfirm={handleRenameContact}
+      />
     </View>
   );
 }
@@ -553,18 +592,6 @@ const styles = StyleSheet.create({
   acceptButton: { backgroundColor: "#2f9e44" },
   declineButton: { backgroundColor: "#c92a2a" },
   smallButtonText: { color: "#fff", fontWeight: "700" },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingVertical: 8,
-    width: 240,
-  },
-  modalOption: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16 },
-  modalOptionText: { fontSize: 16 },
+  dotInvisibleRing: { borderWidth: 2, borderColor: "#868e96" },
+  headerNote: { fontSize: 11, color: "#868e96", maxWidth: 160 },
 });

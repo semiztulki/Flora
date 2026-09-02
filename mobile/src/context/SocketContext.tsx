@@ -9,9 +9,23 @@ import { playContactRequestSound, playIncomingSound } from "../utils/sound";
 
 type MessageListener = (message: Message) => void;
 type GroupMessageListener = (message: GroupMessage) => void;
-type PresenceListener = (userId: number, status: PresenceStatus, lastSeen: string) => void;
+type PresenceListener = (
+  userId: number,
+  status: PresenceStatus,
+  lastSeen: string,
+  note: string | null
+) => void;
 type TypingListener = (senderId: number, recipientId?: number, groupId?: number) => void;
 type ContactRequestListener = (id: number, uin: number, displayName: string) => void;
+
+// Every field independent and optional — a client can toggle just
+// `invisible` without resending the current mood, or clear just the note.
+export interface PresenceUpdate {
+  status?: SettableStatus;
+  invisible?: boolean;
+  note?: string;
+  durationMinutes?: number | null;
+}
 
 interface SocketContextValue {
   sendMessage: (
@@ -27,7 +41,7 @@ interface SocketContextValue {
     attachmentId?: number
   ) => void;
   sendTyping: (target: { recipientId?: number; groupId?: number }) => void;
-  setPresence: (status: SettableStatus) => void;
+  setPresence: (update: PresenceUpdate) => void;
   onMessage: (listener: MessageListener) => () => void;
   onGroupMessage: (listener: GroupMessageListener) => () => void;
   onPresence: (listener: PresenceListener) => () => void;
@@ -63,8 +77,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const contactRequestListeners = useRef(new Set<ContactRequestListener>());
   const [isConnected, setIsConnected] = useState(false);
   // Preserved across reconnects so dropping and regaining signal while
-  // invisible/dnd doesn't silently pop the user back to "online".
-  const desiredStatus = useRef<SettableStatus>("online");
+  // invisible/dnd doesn't silently pop the user back to "available".
+  const desiredStatus = useRef<SettableStatus>("available");
+  const desiredInvisible = useRef(false);
 
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -126,7 +141,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const connect = () => {
       if (!token || isUnmounted.current) return;
 
-      const socket = new WebSocket(`${WS_URL}/ws?token=${token}&status=${desiredStatus.current}`);
+      const socket = new WebSocket(
+        `${WS_URL}/ws?token=${token}&status=${desiredStatus.current}&invisible=${desiredInvisible.current}`
+      );
       wsRef.current = socket;
 
       socket.onopen = () => {
@@ -165,7 +182,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           groupMessageListeners.current.forEach((listener) => listener(data));
         } else if (data.type === "presence") {
           presenceListeners.current.forEach((listener) =>
-            listener(data.user_id, data.status, data.last_seen)
+            listener(data.user_id, data.status, data.last_seen, data.note)
           );
         } else if (data.type === "typing") {
           typingListeners.current.forEach((listener) =>
@@ -265,14 +282,23 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const setPresence = (status: SettableStatus) => {
-    desiredStatus.current = status;
+  const setPresence = (update: PresenceUpdate) => {
+    if (update.status !== undefined) desiredStatus.current = update.status;
+    if (update.invisible !== undefined) desiredInvisible.current = update.invisible;
+
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "presence", status }));
+      const payload: Record<string, unknown> = { type: "presence" };
+      if (update.status !== undefined) payload.status = update.status;
+      if (update.invisible !== undefined) payload.invisible = update.invisible;
+      if (update.note !== undefined) payload.note = update.note;
+      if (update.durationMinutes !== undefined) payload.duration_minutes = update.durationMinutes;
+      socket.send(JSON.stringify(payload));
     }
-    // If not connected, the new desired status is picked up as the initial
-    // status on the next reconnect (see the `status=` query param above).
+    // If not connected, the new desired status/invisible are picked up as
+    // the initial values on the next reconnect (see the query params above);
+    // note/duration aren't part of the initial handshake, so they're simply
+    // not resent until the client calls setPresence again once reconnected.
   };
 
   const onMessage = (listener: MessageListener) => {

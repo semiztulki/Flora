@@ -63,6 +63,7 @@ export default function ChatScreen({ route, navigation }: Props) {
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [contactStatus, setContactStatus] = useState<PresenceStatus>(contact.status);
+  const [contactNote, setContactNote] = useState<string | null>(null);
   const [isContactTyping, setIsContactTyping] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -80,9 +81,10 @@ export default function ChatScreen({ route, navigation }: Props) {
   // the Contacts screen — keep the status live while the chat is open
   // instead of leaving it stuck at that moment.
   useEffect(() => {
-    return onPresence((userId, status) => {
+    return onPresence((userId, status, _lastSeen, note) => {
       if (userId !== contact.id) return;
       setContactStatus(status);
+      setContactNote(note);
     });
   }, [onPresence, contact.id]);
 
@@ -276,10 +278,16 @@ export default function ChatScreen({ route, navigation }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
-      <View style={styles.statusRow}>
+      <Pressable
+        style={styles.statusRow}
+        onPress={() => navigation.navigate("PublicProfile", { uin: contact.uin })}
+      >
         <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
-        <Text style={styles.statusText}>{statusLabel[contactStatus]}</Text>
-      </View>
+        <Text style={styles.statusText}>
+          {statusLabel[contactStatus]}
+          {contactNote ? ` · ${contactNote}` : ""}
+        </Text>
+      </Pressable>
       <FlatList
         ref={listRef}
         data={messages}
