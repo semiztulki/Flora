@@ -324,20 +324,20 @@ export default function ChatScreen({ route, navigation }: Props) {
         onPress={() => navigation.navigate("PublicProfile", { uin: contact.uin })}
         hitSlop={8}
       >
-        <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
+        <ContactAvatar avatar={contact.avatar} label={contact.display_name} size={72} />
         <View style={styles.statusTextCol}>
-          <Text style={styles.statusText}>
-            {statusLabel[contactStatus]}
-            {contactNote ? ` · ${contactNote}` : ""}
+          <Text style={styles.headerName} numberOfLines={1}>
+            {contact.display_name}
           </Text>
+          <View style={styles.statusLine}>
+            <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
+            <Text style={styles.statusText} numberOfLines={2}>
+              {statusLabel[contactStatus]}
+              {contactNote ? ` · ${contactNote}` : ""}
+            </Text>
+          </View>
+          <Text style={styles.statusChevron}>Профиль ›</Text>
         </View>
-        <Text style={styles.statusChevron}>› профиль</Text>
-        <ContactAvatar
-          avatar={contact.avatar}
-          label={contact.display_name}
-          size={32}
-          style={styles.headerAvatar}
-        />
       </Pressable>
       <FlatList
         ref={listRef}
@@ -418,23 +418,24 @@ export default function ChatScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  // Classic-ICQ-style chat chrome: a small header strip with the contact's
-  // portrait (rather than a chat-bubble UI), and a plain scrolling
+  // Classic-ICQ-style chat chrome: a header card with a large, clearly
+  // visible portrait (rather than a chat-bubble UI), and a plain scrolling
   // transcript — "Name (HH:MM): message" — instead of colored bubbles.
   statusRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     backgroundColor: "#eaf7ea",
     borderBottomWidth: 1,
     borderBottomColor: "#b9dfae",
   },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
-  headerAvatar: { marginLeft: 10 },
-  statusTextCol: { flex: 1, marginLeft: 10 },
-  statusText: { fontSize: 12, color: "#495057" },
-  statusChevron: { fontSize: 11, color: "#5c7cfa", marginLeft: 8 },
+  statusTextCol: { flex: 1, marginLeft: 14, gap: 4 },
+  headerName: { fontSize: 17, fontWeight: "700", color: "#212529" },
+  statusLine: { flexDirection: "row", alignItems: "center" },
+  statusDot: { width: 10, height: 10, borderRadius: 5, marginRight: 6 },
+  statusText: { flex: 1, fontSize: 13, color: "#495057" },
+  statusChevron: { fontSize: 12, color: "#5c7cfa", fontWeight: "600" },
   list: { padding: 16 },
   transcriptLine: { marginBottom: 10 },
   transcriptHeader: { fontSize: 13 },
