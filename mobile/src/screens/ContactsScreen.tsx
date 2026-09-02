@@ -458,26 +458,7 @@ export default function ContactsScreen({ navigation }: Props) {
                 onPress={() => navigation.navigate("Chat", { contact: item.contact })}
                 onLongPress={() => setContextMenuContact(item.contact)}
               >
-                {!isSelf ? (
-                  <Pressable
-                    hitSlop={8}
-                    onPress={() => navigation.navigate("PublicProfile", { uin: item.contact.uin })}
-                  >
-                    <ContactAvatar
-                      avatar={item.contact.avatar}
-                      label={contactDisplayName(item.contact)}
-                      statusColor={statusColor[item.contact.status]}
-                      style={styles.rowAvatar}
-                    />
-                  </Pressable>
-                ) : (
-                  <ContactAvatar
-                    avatar={item.contact.avatar}
-                    label={contactDisplayName(item.contact)}
-                    statusColor={statusColor[item.contact.status]}
-                    style={styles.rowAvatar}
-                  />
-                )}
+                <View style={[styles.dot, { backgroundColor: statusColor[item.contact.status] }]} />
                 <View style={styles.rowText}>
                   <Text style={styles.name}>
                     {contactDisplayName(item.contact)}
@@ -489,6 +470,24 @@ export default function ContactsScreen({ navigation }: Props) {
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{unreadCount}</Text>
                   </View>
+                )}
+                {!isSelf ? (
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => navigation.navigate("PublicProfile", { uin: item.contact.uin })}
+                  >
+                    <ContactAvatar
+                      avatar={item.contact.avatar}
+                      label={contactDisplayName(item.contact)}
+                      style={styles.rowAvatar}
+                    />
+                  </Pressable>
+                ) : (
+                  <ContactAvatar
+                    avatar={item.contact.avatar}
+                    label={contactDisplayName(item.contact)}
+                    style={styles.rowAvatar}
+                  />
                 )}
               </Pressable>
             );
@@ -649,7 +648,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f1f3f5",
   },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
-  rowAvatar: { marginRight: 12 },
+  rowAvatar: { marginLeft: 12 },
   groupDot: { backgroundColor: "#5c7cfa" },
   rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },

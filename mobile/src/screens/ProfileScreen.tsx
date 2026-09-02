@@ -328,7 +328,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 16, paddingBottom: 40 },
   avatarWrap: { alignSelf: "center", marginBottom: 8 },
-  avatar: { width: 100, height: 100, borderRadius: 50 },
+  // Square with slightly rounded corners — classic ICQ buddy icon, not a
+  // WhatsApp/Telegram-style circle.
+  avatar: { width: 100, height: 100, borderRadius: 14 },
   avatarPlaceholder: { backgroundColor: "#e9ecef", alignItems: "center", justifyContent: "center" },
   avatarHint: { fontSize: 12, color: "#868e96", textAlign: "center", paddingHorizontal: 8 },
   label: { fontSize: 13, fontWeight: "700", color: "#868e96", textTransform: "uppercase", marginTop: 16 },

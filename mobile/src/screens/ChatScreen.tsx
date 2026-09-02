@@ -324,14 +324,20 @@ export default function ChatScreen({ route, navigation }: Props) {
         onPress={() => navigation.navigate("PublicProfile", { uin: contact.uin })}
         hitSlop={8}
       >
-        <ContactAvatar avatar={contact.avatar} label={contact.display_name} size={32} />
+        <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
         <View style={styles.statusTextCol}>
           <Text style={styles.statusText}>
             {statusLabel[contactStatus]}
             {contactNote ? ` · ${contactNote}` : ""}
           </Text>
         </View>
-        <Text style={styles.statusChevron}>›  профиль</Text>
+        <Text style={styles.statusChevron}>› профиль</Text>
+        <ContactAvatar
+          avatar={contact.avatar}
+          label={contact.display_name}
+          size={32}
+          style={styles.headerAvatar}
+        />
       </Pressable>
       <FlatList
         ref={listRef}
@@ -424,6 +430,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#b9dfae",
   },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  headerAvatar: { marginLeft: 10 },
   statusTextCol: { flex: 1, marginLeft: 10 },
   statusText: { fontSize: 12, color: "#495057" },
   statusChevron: { fontSize: 11, color: "#5c7cfa", marginLeft: 8 },

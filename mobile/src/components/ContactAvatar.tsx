@@ -4,20 +4,19 @@ import { Image, StyleProp, StyleSheet, Text, View, ViewStyle } from "react-nativ
 import { getLocalAttachmentUri } from "../utils/attachmentCache";
 import { Attachment } from "../types";
 
-/** A small round avatar with a status-color dot badge in the corner — used
- * anywhere a contact needs to be both recognizable and show live presence
- * at a glance (contacts list, chat header, …). Falls back to an initial
- * letter when there's no avatar set. */
+/** Classic-ICQ-style buddy icon: a square with slightly rounded corners —
+ * never a circle, that's a WhatsApp/Telegram convention, not an ICQ one.
+ * Presence is deliberately NOT shown here (no corner badge) — in old ICQ
+ * the status is its own icon next to the nickname, separate from the buddy
+ * icon entirely. Falls back to an initial letter when there's no avatar. */
 export default function ContactAvatar({
   avatar,
   label,
-  statusColor,
   size = 40,
   style,
 }: {
   avatar: Attachment | null;
   label: string;
-  statusColor?: string;
   size?: number;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -37,10 +36,10 @@ export default function ContactAvatar({
     };
   }, [avatar]);
 
-  const dim = { width: size, height: size, borderRadius: size / 2 };
+  const dim = { width: size, height: size, borderRadius: Math.max(4, size * 0.18) };
 
   return (
-    <View style={[styles.wrap, { width: size, height: size }, style]}>
+    <View style={[{ width: size, height: size }, style]}>
       {uri ? (
         <Image source={{ uri }} style={dim} />
       ) : (
@@ -50,27 +49,11 @@ export default function ContactAvatar({
           </Text>
         </View>
       )}
-      {statusColor && (
-        <View
-          style={[
-            styles.statusDot,
-            { backgroundColor: statusColor, width: size * 0.3, height: size * 0.3, borderRadius: size * 0.15 },
-          ]}
-        />
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: "relative" },
   placeholder: { backgroundColor: "#e9ecef", alignItems: "center", justifyContent: "center" },
   initial: { fontWeight: "700", color: "#868e96" },
-  statusDot: {
-    position: "absolute",
-    right: -1,
-    bottom: -1,
-    borderWidth: 2,
-    borderColor: "#fff",
-  },
 });
