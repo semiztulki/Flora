@@ -1,10 +1,32 @@
 import * as SQLite from "expo-sqlite";
 
+// Scoped by account so two different logins on the same device — or the
+// same account after a dev backend wipe that reassigns low numeric ids —
+// never see each other's cached messages. `null` (no signed-in user yet)
+// falls back to a small shared placeholder file that's never really used
+// for anything sensitive.
+let currentUserId: number | null = null;
+let currentDbName = "flora.db";
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+function dbNameFor(userId: number | null): string {
+  return userId ? `flora_${userId}.db` : "flora.db";
+}
+
+/** Call whenever the signed-in account changes (login, register, session
+ * restore, logout with null) — opens/creates that account's own local DB
+ * instead of continuing to read whatever was cached under the old scope. */
+export function setDbScope(userId: number | null): void {
+  const nextDbName = dbNameFor(userId);
+  if (nextDbName === currentDbName) return;
+  currentUserId = userId;
+  currentDbName = nextDbName;
+  dbPromise = null;
+}
 
 export function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
-    dbPromise = SQLite.openDatabaseAsync("flora.db").then(async (db) => {
+    dbPromise = SQLite.openDatabaseAsync(currentDbName).then(async (db) => {
       await db.execAsync(`
         PRAGMA journal_mode = WAL;
 
@@ -70,4 +92,16 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
     });
   }
   return dbPromise;
+}
+
+/** Wipes this account's entire local message log (both DMs and groups) from
+ * this device. Used by the "clear local data" escape hatch — not something
+ * a normal user flow triggers on its own. */
+export async function wipeLocalDb(): Promise<void> {
+  if (dbPromise) {
+    const db = await dbPromise;
+    await db.closeAsync();
+    dbPromise = null;
+  }
+  await SQLite.deleteDatabaseAsync(currentDbName);
 }

@@ -14,6 +14,7 @@ import {
 
 import * as contactsApi from "../api/contacts";
 import * as groupsApi from "../api/groups";
+import ContactAvatar from "../components/ContactAvatar";
 import StatusPickerModal, { StatusUpdate } from "../components/StatusPickerModal";
 import TextPromptModal from "../components/TextPromptModal";
 import { useAuth } from "../context/AuthContext";
@@ -433,15 +434,33 @@ export default function ContactsScreen({ navigation }: Props) {
 
           if (item.kind === "contact") {
             const unreadCount = unread[item.contact.id] ?? 0;
+            const isSelf = item.contact.id === user?.id;
             return (
               <Pressable
                 style={styles.row}
                 onPress={() => navigation.navigate("Chat", { contact: item.contact })}
                 onLongPress={() => handleContactLongPress(item.contact)}
               >
-                <View
-                  style={[styles.dot, { backgroundColor: statusColor[item.contact.status] }]}
-                />
+                {!isSelf ? (
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => navigation.navigate("PublicProfile", { uin: item.contact.uin })}
+                  >
+                    <ContactAvatar
+                      avatar={item.contact.avatar}
+                      label={contactDisplayName(item.contact)}
+                      statusColor={statusColor[item.contact.status]}
+                      style={styles.rowAvatar}
+                    />
+                  </Pressable>
+                ) : (
+                  <ContactAvatar
+                    avatar={item.contact.avatar}
+                    label={contactDisplayName(item.contact)}
+                    statusColor={statusColor[item.contact.status]}
+                    style={styles.rowAvatar}
+                  />
+                )}
                 <View style={styles.rowText}>
                   <Text style={styles.name}>
                     {contactDisplayName(item.contact)}
@@ -566,6 +585,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#f1f3f5",
   },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
+  rowAvatar: { marginRight: 12 },
   groupDot: { backgroundColor: "#5c7cfa" },
   rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },

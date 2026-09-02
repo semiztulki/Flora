@@ -1,5 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
 
 import { SettableStatus } from "../types";
 import { getLastNote, setLastNote } from "../utils/statusNotes";
@@ -82,76 +95,94 @@ export default function StatusPickerModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.card} onPress={() => {}}>
-          <Text style={styles.sectionLabel}>Статус</Text>
-          {STATUS_ORDER.map((status) => (
-            <Pressable
-              key={status}
-              style={styles.moodRow}
-              onPress={() => handlePickMood(status)}
-            >
-              <View style={[styles.dot, { backgroundColor: statusColor[status] }]} />
-              <Text
-                style={[styles.moodText, pendingStatus === status && styles.moodTextSelected]}
-              >
-                {statusLabel[status]}
-              </Text>
-              {pendingStatus === status && <Text style={styles.checkmark}>✓</Text>}
-            </Pressable>
-          ))}
+      <KeyboardAvoidingView
+        style={styles.avoidingView}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {/* Tapping the backdrop closes the whole modal (standard modal
+            behaviour) — but tapping empty space WITHIN the card just
+            dismisses the keyboard, via the TouchableWithoutFeedback below,
+            so typing a note and tapping elsewhere on the card doesn't lose
+            it by accidentally closing the modal. */}
+        <Pressable style={styles.backdrop} onPress={onClose}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.card}>
+              <ScrollView keyboardShouldPersistTaps="handled" style={styles.cardScroll}>
+                <Text style={styles.sectionLabel}>Статус</Text>
+                {STATUS_ORDER.map((status) => (
+                  <Pressable
+                    key={status}
+                    style={styles.moodRow}
+                    onPress={() => handlePickMood(status)}
+                  >
+                    <View style={[styles.dot, { backgroundColor: statusColor[status] }]} />
+                    <Text
+                      style={[styles.moodText, pendingStatus === status && styles.moodTextSelected]}
+                    >
+                      {statusLabel[status]}
+                    </Text>
+                    {pendingStatus === status && <Text style={styles.checkmark}>✓</Text>}
+                  </Pressable>
+                ))}
 
-          <View style={styles.divider} />
+                <View style={styles.divider} />
 
-          <View style={styles.invisibleRow}>
-            <View style={[styles.dot, { backgroundColor: INVISIBLE_COLOR }]} />
-            <Text style={styles.moodText}>{INVISIBLE_LABEL}</Text>
-            <View style={styles.spacer} />
-            <Switch value={pendingInvisible} onValueChange={setPendingInvisible} />
-          </View>
+                <View style={styles.invisibleRow}>
+                  <View style={[styles.dot, { backgroundColor: INVISIBLE_COLOR }]} />
+                  <Text style={styles.moodText}>{INVISIBLE_LABEL}</Text>
+                  <View style={styles.spacer} />
+                  <Switch value={pendingInvisible} onValueChange={setPendingInvisible} />
+                </View>
 
-          <Text style={styles.sectionLabel}>Пояснение</Text>
-          <TextInput
-            style={styles.noteInput}
-            value={pendingNote}
-            onChangeText={setPendingNote}
-            placeholder="Например: за кофе, минут на десять"
-            maxLength={NOTE_MAX_LENGTH}
-          />
+                <Text style={styles.sectionLabel}>Пояснение</Text>
+                <TextInput
+                  style={styles.noteInput}
+                  value={pendingNote}
+                  onChangeText={setPendingNote}
+                  placeholder="Например: за кофе, минут на десять"
+                  maxLength={NOTE_MAX_LENGTH}
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  blurOnSubmit
+                />
 
-          <Text style={styles.sectionLabel}>На сколько</Text>
-          <View style={styles.durationRow}>
-            {DURATION_OPTIONS.map((option) => (
-              <Pressable
-                key={option.label}
-                style={[
-                  styles.durationChip,
-                  pendingDuration === option.value && styles.durationChipSelected,
-                ]}
-                onPress={() => setPendingDuration(option.value)}
-              >
-                <Text
-                  style={[
-                    styles.durationChipText,
-                    pendingDuration === option.value && styles.durationChipTextSelected,
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+                <Text style={styles.sectionLabel}>На сколько</Text>
+                <View style={styles.durationRow}>
+                  {DURATION_OPTIONS.map((option) => (
+                    <Pressable
+                      key={option.label}
+                      style={[
+                        styles.durationChip,
+                        pendingDuration === option.value && styles.durationChipSelected,
+                      ]}
+                      onPress={() => setPendingDuration(option.value)}
+                    >
+                      <Text
+                        style={[
+                          styles.durationChipText,
+                          pendingDuration === option.value && styles.durationChipTextSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-          <Pressable style={styles.saveButton} onPress={handleApply}>
-            <Text style={styles.saveButtonText}>Сохранить</Text>
-          </Pressable>
+                <Pressable style={styles.saveButton} onPress={handleApply}>
+                  <Text style={styles.saveButtonText}>Сохранить</Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </TouchableWithoutFeedback>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  avoidingView: { flex: 1 },
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.3)",
@@ -161,11 +192,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#fff",
     borderRadius: 12,
-    paddingVertical: 12,
     paddingHorizontal: 16,
     width: 300,
     maxHeight: "85%",
   },
+  cardScroll: { paddingVertical: 12 },
   sectionLabel: {
     fontSize: 12,
     fontWeight: "700",

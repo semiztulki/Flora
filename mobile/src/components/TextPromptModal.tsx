@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 // Alert.prompt is iOS-only in React Native — this is the cross-platform
 // stand-in wherever we need a single text field in a dialog (e.g. renaming
@@ -29,32 +39,40 @@ export default function TextPromptModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable style={styles.backdrop} onPress={onCancel}>
-        <Pressable style={styles.card} onPress={() => {}}>
-          <Text style={styles.title}>{title}</Text>
-          <TextInput
-            style={styles.input}
-            value={value}
-            onChangeText={setValue}
-            placeholder={placeholder}
-            autoFocus
-            maxLength={64}
-          />
-          <View style={styles.buttonRow}>
-            <Pressable style={styles.button} onPress={onCancel}>
-              <Text style={styles.buttonText}>Отмена</Text>
-            </Pressable>
-            <Pressable style={styles.button} onPress={() => onConfirm(value.trim())}>
-              <Text style={[styles.buttonText, styles.confirmText]}>{confirmLabel}</Text>
-            </Pressable>
-          </View>
+      <KeyboardAvoidingView
+        style={styles.avoidingView}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <Pressable style={styles.backdrop} onPress={onCancel}>
+          <Pressable style={styles.card} onPress={() => {}}>
+            <Text style={styles.title}>{title}</Text>
+            <TextInput
+              style={styles.input}
+              value={value}
+              onChangeText={setValue}
+              placeholder={placeholder}
+              autoFocus
+              maxLength={64}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+            />
+            <View style={styles.buttonRow}>
+              <Pressable style={styles.button} onPress={onCancel}>
+                <Text style={styles.buttonText}>Отмена</Text>
+              </Pressable>
+              <Pressable style={styles.button} onPress={() => onConfirm(value.trim())}>
+                <Text style={[styles.buttonText, styles.confirmText]}>{confirmLabel}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  avoidingView: { flex: 1 },
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.3)",

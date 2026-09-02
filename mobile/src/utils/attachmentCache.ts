@@ -3,13 +3,29 @@ import * as FileSystem from "expo-file-system/legacy";
 import { getToken } from "../api/storage";
 import { API_URL } from "../config";
 
-const ATTACHMENTS_DIR = `${FileSystem.documentDirectory}attachments/`;
+// Scoped by account, same reasoning as db/database.ts's setDbScope: attachment
+// ids are shared/global across all users on the backend, so a flat cache dir
+// keyed only by id would let a second account on this device (or the same
+// account after a dev backend wipe reassigns low ids) get served someone
+// else's already-downloaded file for a colliding id.
+let currentUserId: number | null = null;
 
-async function ensureDir(): Promise<void> {
-  const info = await FileSystem.getInfoAsync(ATTACHMENTS_DIR);
+export function setAttachmentCacheScope(userId: number | null): void {
+  currentUserId = userId;
+}
+
+function attachmentsDir(): string {
+  const suffix = currentUserId ? `_${currentUserId}` : "";
+  return `${FileSystem.documentDirectory}attachments${suffix}/`;
+}
+
+async function ensureDir(): Promise<string> {
+  const dir = attachmentsDir();
+  const info = await FileSystem.getInfoAsync(dir);
   if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(ATTACHMENTS_DIR, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
   }
+  return dir;
 }
 
 function extensionFor(contentType: string): string {
@@ -26,8 +42,8 @@ export async function getLocalAttachmentUri(
   attachmentId: number,
   contentType: string
 ): Promise<string> {
-  await ensureDir();
-  const localUri = `${ATTACHMENTS_DIR}${attachmentId}.${extensionFor(contentType)}`;
+  const dir = await ensureDir();
+  const localUri = `${dir}${attachmentId}.${extensionFor(contentType)}`;
 
   const existing = await FileSystem.getInfoAsync(localUri);
   if (existing.exists) return localUri;
@@ -39,4 +55,11 @@ export async function getLocalAttachmentUri(
     token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
   );
   return result.uri;
+}
+
+/** Deletes this account's whole cached-attachment directory on this device.
+ * Used by the "clear local data" escape hatch. */
+export async function clearAttachmentCache(): Promise<void> {
+  const dir = attachmentsDir();
+  await FileSystem.deleteAsync(dir, { idempotent: true });
 }

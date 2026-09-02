@@ -21,31 +21,55 @@ import { RootStackParamList } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
 
-// "ДД.ММ.ГГГГ" or "ДД.ММ" (year optional, toggled separately) <-> "YYYY-MM-DD".
-function parseBirthdayInput(text: string): string | null {
-  const match = text.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?$/);
-  if (!match) return null;
-  const [, day, month, year] = match;
-  const y = year ?? "1900"; // placeholder year when the user chose not to share it
-  return `${y.padStart(4, "0")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+// Day/month/year are kept as three separate fields rather than one parsed
+// string — "show year" only ever controls whether OTHERS see the year
+// (birthday_show_year, sent separately to the server); it must never affect
+// what's actually stored, or toggling it off and saving again would silently
+// throw the real year away.
+function splitBirthday(isoDate: string | null): { day: string; month: string; year: string } {
+  if (!isoDate) return { day: "", month: "", year: "" };
+  const [year, month, day] = isoDate.split("-");
+  return { day, month, year };
 }
 
-function formatBirthdayForInput(isoDate: string | null, showYear: boolean): string {
-  if (!isoDate) return "";
-  const [y, m, d] = isoDate.split("-");
-  return showYear ? `${d}.${m}.${y}` : `${d}.${m}`;
+// Accepts a 2-digit year ("91") as shorthand alongside a full 4-digit one
+// ("1991") — a common pivot: 00-30 reads as 2000s, 31-99 as 1900s.
+function normalizeYear(input: string): number {
+  const n = parseInt(input, 10);
+  if (input.length <= 2) return n <= 30 ? 2000 + n : 1900 + n;
+  return n;
+}
+
+/** Combines the three fields into "YYYY-MM-DD", `null` if all three are
+ * empty (clears the birthday), or `"invalid"` if only some are filled in or
+ * the numbers don't make sense. */
+function buildBirthdayIso(day: string, month: string, year: string): string | null | "invalid" {
+  const d = day.trim();
+  const m = month.trim();
+  const y = year.trim();
+  if (!d && !m && !y) return null;
+
+  const dayNum = parseInt(d, 10);
+  const monthNum = parseInt(m, 10);
+  if (!d || !m || !y || Number.isNaN(dayNum) || Number.isNaN(monthNum)) return "invalid";
+  if (dayNum < 1 || dayNum > 31 || monthNum < 1 || monthNum > 12) return "invalid";
+  if (!/^\d{1,4}$/.test(y)) return "invalid";
+
+  const yearNum = normalizeYear(y);
+  return `${String(yearNum).padStart(4, "0")}-${String(monthNum).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
 }
 
 export default function ProfileScreen({ navigation }: Props) {
-  const { user, updateProfile, updateAvatar } = useAuth();
+  const { user, updateProfile, updateAvatar, wipeLocalData } = useAuth();
   const [displayName, setDisplayName] = useState(user?.display_name ?? "");
   const [firstName, setFirstName] = useState(user?.first_name ?? "");
   const [lastName, setLastName] = useState(user?.last_name ?? "");
   const [pronouns, setPronouns] = useState(user?.pronouns ?? "");
+  const initialBirthday = splitBirthday(user?.birthday ?? null);
+  const [birthdayDay, setBirthdayDay] = useState(initialBirthday.day);
+  const [birthdayMonth, setBirthdayMonth] = useState(initialBirthday.month);
+  const [birthdayYear, setBirthdayYear] = useState(initialBirthday.year);
   const [birthdayShowYear, setBirthdayShowYear] = useState(user?.birthday_show_year ?? true);
-  const [birthdayText, setBirthdayText] = useState(
-    formatBirthdayForInput(user?.birthday ?? null, user?.birthday_show_year ?? true)
-  );
   const [city, setCity] = useState(user?.city ?? "");
   const [country, setCountry] = useState(user?.country ?? "");
   const [languages, setLanguages] = useState(user?.languages ?? "");
@@ -103,16 +127,10 @@ export default function ProfileScreen({ navigation }: Props) {
   const handleSave = async () => {
     setError(null);
 
-    let birthdayIso: string | null | undefined;
-    if (birthdayText.trim().length === 0) {
-      birthdayIso = null; // explicit clear
-    } else {
-      const parsed = parseBirthdayInput(birthdayText.trim());
-      if (!parsed) {
-        setError('Дата рождения — в формате "ДД.ММ" или "ДД.ММ.ГГГГ"');
-        return;
-      }
-      birthdayIso = parsed;
+    const birthdayIso = buildBirthdayIso(birthdayDay, birthdayMonth, birthdayYear);
+    if (birthdayIso === "invalid") {
+      setError("Дата рождения — заполните число, месяц и год (год можно двумя цифрами, например 91)");
+      return;
     }
 
     setIsSaving(true);
@@ -176,15 +194,37 @@ export default function ProfileScreen({ navigation }: Props) {
       <TextInput style={styles.input} value={pronouns} onChangeText={setPronouns} placeholder="она / он / они" />
 
       <Text style={styles.label}>Дата рождения</Text>
-      <TextInput
-        style={styles.input}
-        value={birthdayText}
-        onChangeText={setBirthdayText}
-        placeholder="ДД.ММ или ДД.ММ.ГГГГ"
-        keyboardType="numbers-and-punctuation"
-      />
+      <View style={styles.birthdayRow}>
+        <TextInput
+          style={[styles.input, styles.birthdayInputSmall]}
+          value={birthdayDay}
+          onChangeText={(t) => setBirthdayDay(t.replace(/[^0-9]/g, "").slice(0, 2))}
+          placeholder="ДД"
+          keyboardType="number-pad"
+          maxLength={2}
+        />
+        <Text style={styles.birthdaySeparator}>.</Text>
+        <TextInput
+          style={[styles.input, styles.birthdayInputSmall]}
+          value={birthdayMonth}
+          onChangeText={(t) => setBirthdayMonth(t.replace(/[^0-9]/g, "").slice(0, 2))}
+          placeholder="ММ"
+          keyboardType="number-pad"
+          maxLength={2}
+        />
+        <Text style={styles.birthdaySeparator}>.</Text>
+        <TextInput
+          style={[styles.input, styles.birthdayInputYear]}
+          value={birthdayYear}
+          onChangeText={(t) => setBirthdayYear(t.replace(/[^0-9]/g, "").slice(0, 4))}
+          placeholder="ГГГГ или ГГ"
+          keyboardType="number-pad"
+          maxLength={4}
+        />
+      </View>
+      <Text style={styles.hint}>Год можно указать двумя цифрами (91) или четырьмя (1991)</Text>
       <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>Показывать год рождения</Text>
+        <Text style={styles.switchLabel}>Показывать год рождения в профиле</Text>
         <Switch value={birthdayShowYear} onValueChange={setBirthdayShowYear} />
       </View>
 
@@ -257,6 +297,29 @@ export default function ProfileScreen({ navigation }: Props) {
       <Pressable style={styles.button} onPress={handleSave} disabled={isSaving || !displayName.trim()}>
         {isSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Сохранить</Text>}
       </Pressable>
+
+      <Pressable
+        style={styles.wipeButton}
+        onPress={() =>
+          Alert.alert(
+            "Очистить локальные данные?",
+            "Удалится история сообщений и кэш фото, сохранённые на этом устройстве. На сервере ничего не изменится. Полезно, если бэкенд недавно пересоздавали с нуля.",
+            [
+              { text: "Отмена", style: "cancel" },
+              {
+                text: "Очистить",
+                style: "destructive",
+                onPress: async () => {
+                  await wipeLocalData();
+                  Alert.alert("Готово", "Локальные данные на этом устройстве очищены.");
+                },
+              },
+            ]
+          )
+        }
+      >
+        <Text style={styles.wipeButtonText}>Очистить локальные данные на этом устройстве</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -279,6 +342,11 @@ const styles = StyleSheet.create({
   },
   aboutInput: { minHeight: 80, textAlignVertical: "top" },
   uinValue: { fontSize: 22, fontWeight: "700", marginTop: 4 },
+  birthdayRow: { flexDirection: "row", alignItems: "center" },
+  birthdayInputSmall: { width: 56, textAlign: "center" },
+  birthdayInputYear: { width: 90, textAlign: "center" },
+  birthdaySeparator: { fontSize: 18, marginHorizontal: 4, marginTop: 8, color: "#868e96" },
+  hint: { fontSize: 12, color: "#868e96", marginTop: 6 },
   switchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -295,4 +363,6 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  wipeButton: { alignItems: "center", marginTop: 16, padding: 8 },
+  wipeButtonText: { color: "#c92a2a", fontSize: 13, textAlign: "center" },
 });

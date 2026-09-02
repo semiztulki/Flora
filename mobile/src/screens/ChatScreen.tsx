@@ -1,6 +1,6 @@
 import * as ImagePicker from "expo-image-picker";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -68,6 +68,12 @@ export default function ChatScreen({ route, navigation }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const listRef = useRef<FlatList<LocalMessage>>(null);
+  // `messages` is stored oldest-first; the FlatList is `inverted` (the
+  // standard, robust way to keep a chat pinned to its newest message without
+  // fighting FlatList's lazy measurement — scrollToEnd on a plain list is
+  // unreliable once there's enough content that not everything is rendered
+  // up front), which expects newest-first data.
+  const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
   const lastTypingSentAt = useRef(0);
   const typingExpireTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -281,19 +287,21 @@ export default function ChatScreen({ route, navigation }: Props) {
       <Pressable
         style={styles.statusRow}
         onPress={() => navigation.navigate("PublicProfile", { uin: contact.uin })}
+        hitSlop={8}
       >
         <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
         <Text style={styles.statusText}>
           {statusLabel[contactStatus]}
           {contactNote ? ` · ${contactNote}` : ""}
         </Text>
+        <Text style={styles.statusChevron}>›  профиль</Text>
       </Pressable>
       <FlatList
         ref={listRef}
-        data={messages}
+        inverted
+        data={reversedMessages}
         keyExtractor={(item) => String(item.localId)}
         contentContainerStyle={styles.list}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => {
           // TEMP TESTING HACK (remove after sound/incoming testing is done):
           // in a self-chat there's no real "other side", so every message
@@ -357,6 +365,7 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   statusText: { fontSize: 12, color: "#868e96" },
+  statusChevron: { fontSize: 11, color: "#5c7cfa", marginLeft: 8 },
   list: { padding: 16 },
   bubble: { maxWidth: "80%", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8 },
   bubbleMine: { backgroundColor: "#d3f2dd", alignSelf: "flex-end" },

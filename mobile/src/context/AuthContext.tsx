@@ -2,7 +2,9 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 
 import * as authApi from "../api/auth";
 import { clearToken, getToken, saveToken } from "../api/storage";
+import { setDbScope, wipeLocalDb } from "../db/database";
 import { BanInfo, User } from "../types";
+import { clearAttachmentCache, setAttachmentCacheScope } from "../utils/attachmentCache";
 
 interface AuthContextValue {
   user: User | null;
@@ -16,6 +18,12 @@ interface AuthContextValue {
   updateAvatar: (attachmentId: number | null) => Promise<void>;
   reportBanned: (info: BanInfo) => void;
   clearBanInfo: () => void;
+  /** Wipes this account's local message log and cached attachments on THIS
+   * device only — nothing server-side is touched. Mainly an escape hatch for
+   * dev testing (the backend DB got wiped and reused low ids, so this
+   * device's stale local cache no longer matches reality), but also useful
+   * as a plain "reset local data" action. */
+  wipeLocalData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -50,6 +58,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .finally(() => setIsLoading(false));
   }, []);
+
+  // Scopes local storage (SQLite message log + cached attachment files) to
+  // whichever account is actually signed in right now — covers login,
+  // register, session restore, and logout/ban in one place, since all of
+  // them ultimately just change `user`.
+  useEffect(() => {
+    setDbScope(user?.id ?? null);
+    setAttachmentCacheScope(user?.id ?? null);
+  }, [user?.id]);
 
   const handleAuthResponse = async (response: { access_token: string; user: User }) => {
     await saveToken(response.access_token);
@@ -106,6 +123,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearBanInfo = () => setBanInfo(null);
 
+  const wipeLocalData = async () => {
+    await wipeLocalDb();
+    await clearAttachmentCache();
+  };
+
   const value = useMemo(
     () => ({
       user,
@@ -119,6 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateAvatar,
       reportBanned,
       clearBanInfo,
+      wipeLocalData,
     }),
     [user, token, isLoading, banInfo]
   );
