@@ -60,6 +60,11 @@ function toLocalAttachment(
 
 export default function ChatScreen({ route, navigation }: Props) {
   const { contact } = route.params;
+  // Your own private label for them ("Саша универ"), if you've set one —
+  // shown everywhere in this screen except where the *real* account
+  // nickname matters (reporting them to a moderator, who has no idea what
+  // you privately call people).
+  const peerName = contact.local_nickname || contact.display_name;
   const { user } = useAuth();
   const { sendMessage, onMessage, sendTyping, onTyping, onPresence } = useSocket();
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -87,8 +92,8 @@ export default function ChatScreen({ route, navigation }: Props) {
   const typingExpireTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title: contact.display_name });
-  }, [navigation, contact]);
+    navigation.setOptions({ title: peerName });
+  }, [navigation, contact, peerName]);
 
   // The contact param is a snapshot from whenever their row was tapped on
   // the Contacts screen — keep the status live while the chat is open
@@ -297,7 +302,7 @@ export default function ChatScreen({ route, navigation }: Props) {
   const handleMessageLongPress = useCallback(
     (item: LocalMessage) => {
       if (item.senderId === user?.id || !item.serverId) return;
-      Alert.alert(contact.display_name, undefined, [
+      Alert.alert(peerName, undefined, [
         { text: "Отмена", style: "cancel" },
         {
           text: "Пожаловаться",
@@ -324,10 +329,10 @@ export default function ChatScreen({ route, navigation }: Props) {
         onPress={() => navigation.navigate("PublicProfile", { uin: contact.uin })}
         hitSlop={8}
       >
-        <ContactAvatar avatar={contact.avatar} label={contact.display_name} size={72} />
+        <ContactAvatar avatar={contact.avatar} label={peerName} size={72} />
         <View style={styles.statusTextCol}>
           <Text style={styles.headerName} numberOfLines={1}>
-            {contact.display_name}
+            {peerName}
           </Text>
           <View style={styles.statusLine}>
             <View style={[styles.statusDot, { backgroundColor: statusColor[contactStatus] }]} />
@@ -375,7 +380,7 @@ export default function ChatScreen({ route, navigation }: Props) {
             >
               <Text style={styles.transcriptHeader}>
                 <Text style={isMine ? styles.senderNameMine : styles.senderNameTheirs}>
-                  {isMine ? user?.display_name : contact.display_name}
+                  {isMine ? user?.display_name : peerName}
                 </Text>
                 <Text style={styles.timestamp}> ({time}){item.status === "pending" ? " · отправка…" : ""}:</Text>
               </Text>
@@ -388,7 +393,7 @@ export default function ChatScreen({ route, navigation }: Props) {
         }}
       />
       {isContactTyping && (
-        <Text style={styles.typingIndicator}>{contact.display_name} печатает…</Text>
+        <Text style={styles.typingIndicator}>{peerName} печатает…</Text>
       )}
       <View style={styles.toolbarRow}>
         <Pressable style={styles.toolbarButton} onPress={handleAttachImage} disabled={isUploading}>

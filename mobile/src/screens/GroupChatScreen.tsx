@@ -17,6 +17,7 @@ import {
 import * as attachmentsApi from "../api/attachments";
 import * as groupsApi from "../api/groups";
 import AttachmentImage from "../components/AttachmentImage";
+import ContactAvatar from "../components/ContactAvatar";
 import ImageViewerModal from "../components/ImageViewerModal";
 import { MAX_ATTACHMENT_BYTES } from "../config";
 import { useAuth } from "../context/AuthContext";
@@ -282,6 +283,20 @@ export default function GroupChatScreen({ route, navigation }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
+      <View style={styles.groupHeader}>
+        {/* No per-group avatar field on the backend yet — the initial-letter
+            square doubles as a plain group icon, same idea as a contact's
+            buddy icon placeholder. */}
+        <ContactAvatar avatar={null} label={group.name} size={72} />
+        <View style={styles.groupHeaderTextCol}>
+          <Text style={styles.groupHeaderName} numberOfLines={1}>
+            {group.name}
+          </Text>
+          <Text style={styles.groupHeaderMembers}>
+            {group.members.length} участников
+          </Text>
+        </View>
+      </View>
       <FlatList
         ref={listRef}
         inverted
@@ -341,6 +356,18 @@ export default function GroupChatScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  groupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#eaf7ea",
+    borderBottomWidth: 1,
+    borderBottomColor: "#b9dfae",
+  },
+  groupHeaderTextCol: { flex: 1, marginLeft: 14, gap: 4 },
+  groupHeaderName: { fontSize: 17, fontWeight: "700", color: "#212529" },
+  groupHeaderMembers: { fontSize: 13, color: "#495057" },
   list: { padding: 16 },
   transcriptLine: { marginBottom: 10 },
   transcriptHeader: { fontSize: 13 },
