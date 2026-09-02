@@ -22,6 +22,7 @@ import { MAX_ATTACHMENT_BYTES } from "../config";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import {
+  getLastReadServerId,
   getMaxServerId,
   getMessagesForPeer,
   insertPendingMessage,
@@ -74,6 +75,13 @@ export default function ChatScreen({ route, navigation }: Props) {
   // unreliable once there's enough content that not everything is rendered
   // up front), which expects newest-first data.
   const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
+  // Captured once, before the initial load marks the backlog as read, so we
+  // can land the list at the first message that arrived since you were last
+  // here instead of at the very bottom — landing at the bottom would bury
+  // a whole offline backlog above the fold instead of starting you reading
+  // it from the top, the way Telegram's "unread messages" jump does.
+  const initialReadWatermark = useRef<number | null>(null);
+  const hasScrolledToUnread = useRef(false);
   const lastTypingSentAt = useRef(0);
   const typingExpireTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -131,6 +139,10 @@ export default function ChatScreen({ route, navigation }: Props) {
     let cancelled = false;
 
     (async () => {
+      // Must happen before anything below marks messages read — this is the
+      // one chance to see the watermark as it was when the chat was opened.
+      initialReadWatermark.current = await getLastReadServerId(contact.id);
+
       const localRows = await getMessagesForPeer(contact.id);
       if (!cancelled) setMessages(localRows);
 
@@ -159,6 +171,30 @@ export default function ChatScreen({ route, navigation }: Props) {
       cancelled = true;
     };
   }, [contact.id, refreshFromLocalDb]);
+
+  // Once, the first time messages actually render: jump to the first
+  // message that arrived since the watermark captured above, so an offline
+  // backlog is read top-down from where you left off instead of opening at
+  // the very bottom and burying it above the fold. Skipped (stays at the
+  // natural inverted-list resting position, i.e. the bottom) once there's
+  // nothing unread — the common case.
+  useEffect(() => {
+    if (hasScrolledToUnread.current) return;
+    if (initialReadWatermark.current === null) return;
+    if (messages.length === 0) return;
+
+    const watermark = initialReadWatermark.current;
+    hasScrolledToUnread.current = true;
+    const firstUnreadIndex = messages.findIndex(
+      (m) => m.serverId !== null && m.serverId > watermark
+    );
+    if (firstUnreadIndex === -1) return;
+
+    const reversedIndex = messages.length - 1 - firstUnreadIndex;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({ index: reversedIndex, animated: false, viewPosition: 0.85 });
+    });
+  }, [messages]);
 
   useEffect(() => {
     return onMessage((message) => {
@@ -302,6 +338,18 @@ export default function ChatScreen({ route, navigation }: Props) {
         data={reversedMessages}
         keyExtractor={(item) => String(item.localId)}
         contentContainerStyle={styles.list}
+        onScrollToIndexFailed={(info) => {
+          // Happens when scrollToIndex fires before FlatList has measured
+          // that far (common with dynamically-sized bubbles/images) — retry
+          // once layout has caught up instead of silently failing.
+          setTimeout(() => {
+            listRef.current?.scrollToIndex({
+              index: info.index,
+              animated: false,
+              viewPosition: 0.85,
+            });
+          }, 100);
+        }}
         renderItem={({ item }) => {
           // TEMP TESTING HACK (remove after sound/incoming testing is done):
           // in a self-chat there's no real "other side", so every message

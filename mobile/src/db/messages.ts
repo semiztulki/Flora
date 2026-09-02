@@ -203,6 +203,18 @@ export async function getPendingMessages(): Promise<LocalMessage[]> {
   return rows.map(mapRow);
 }
 
+/** Read-only peek at the watermark, unlike markRead — used to capture "what
+ * was already read" right as a chat opens, before that same open marks
+ * everything (including a backlog that arrived while offline) as read. */
+export async function getLastReadServerId(peerId: number): Promise<number> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ last_read_server_id: number }>(
+    `SELECT last_read_server_id FROM read_state WHERE peer_id = ?`,
+    peerId
+  );
+  return row?.last_read_server_id ?? 0;
+}
+
 export async function markRead(peerId: number, uptoServerId: number): Promise<void> {
   const db = await getDb();
   await db.runAsync(
